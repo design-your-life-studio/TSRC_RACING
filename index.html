@@ -1,185 +1,173 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>綠能方程式 - 大螢幕主畫面</title>
-  
-  <!-- 載入 React, ReactDOM, Babel, Tailwind -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@700;900&family=Righteous&display=swap');
-    body { font-family: 'Noto Sans TC', sans-serif; }
-    .retro-title {
-      text-shadow: 4px 4px 0px #e11d48, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
-    }
-    .retro-subtitle {
-      text-shadow: 3px 3px 0px #1d4ed8, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
-    }
-    .bg-checkerboard {
-      background-image: 
-        linear-gradient(45deg, #1f2937 25%, transparent 25%), 
-        linear-gradient(-45deg, #1f2937 25%, transparent 25%), 
-        linear-gradient(45deg, transparent 75%, #1f2937 75%), 
-        linear-gradient(-45deg, transparent 75%, #1f2937 75%);
-      background-size: 20px 20px;
-      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-    }
-    .bg-grid {
-      background-size: 40px 40px;
-      background-image: 
-        linear-gradient(to right, rgba(255,255,255,0.1) 2px, transparent 2px),
-        linear-gradient(to bottom, rgba(255,255,255,0.1) 2px, transparent 2px);
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台橡綠能方程式 - 大螢幕主畫面</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+    <style>
+        body { background-color: #111; color: #fff; overflow: hidden; font-family: 'Arial', sans-serif; }
+        .track { position: relative; width: 100%; height: 50px; background: #333; margin-bottom: 10px; border-radius: 25px; overflow: hidden; }
+        .car { position: absolute; left: 0; top: 0; height: 100%; width: 120px; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 25px; transition: left 0.3s ease-out; display: flex; align-items: center; justify-content: flex-end; padding-right: 15px; font-weight: bold; color: #000; box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+        .finish-line { position: absolute; right: 5%; top: 0; width: 5px; height: 100%; background: repeating-linear-gradient(0deg, #fff, #fff 10px, #000 10px, #000 20px); z-index: 10; }
+        .bg-popart { background-image: radial-gradient(#333 15%, transparent 16%), radial-gradient(#333 15%, transparent 16%); background-size: 20px 20px; background-position: 0 0, 10px 10px; }
+    </style>
 </head>
-<body>
-  <div id="root"></div>
+<body class="bg-popart">
+    <div id="root"></div>
 
-  <script type="text/babel">
-    const { useState, useEffect } = React;
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
-    const TrophyIcon = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#e11d48] drop-shadow-[4px_4px_0px_#000]">
-        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
-      </svg>
-    );
+        // 幫您填入的 TSRC RACING Firebase 設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyAVkXL-r-MM2NSs9f6T9LPX78b-CAgCXQY",
+            authDomain: "tsrc-racing.firebaseapp.com",
+            projectId: "tsrc-racing",
+            storageBucket: "tsrc-racing.firebasestorage.app",
+            messagingSenderId: "859095220602",
+            appId: "1:859095220602:web:70c4d9be106383a97656c3",
+            measurementId: "G-1RLXCDE731"
+        };
 
-    const F1CarSVG = () => (
-      <svg viewBox="0 0 120 45" className="w-full h-full drop-shadow-md">
-        <g stroke="#000" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round">
-          <path d="M10,35 L110,35 L115,25 L105,25 Z" fill="#1e3a8a" />
-          <path d="M5,15 L25,15 L25,25 L5,25 Z" fill="#e11d48" />
-          <path d="M10,5 L15,5 L15,35 L10,35 Z" fill="#000" />
-          <path d="M25,25 L45,15 L75,15 L100,25 Z" fill="#3b82f6" />
-          <path d="M55,15 C55,5 70,5 70,15 Z" fill="#fff" />
-          <path d="M40,25 L65,25 L65,30 L40,30 Z" fill="#22c55e" />
-          <path d="M105,30 L115,30 L115,35 L105,35 Z" fill="#e11d48" />
-          <circle cx="25" cy="30" r="12" fill="#1f2937" />
-          <circle cx="25" cy="30" r="6" fill="#facc15" />
-          <circle cx="25" cy="30" r="2" fill="#000" />
-          <circle cx="90" cy="30" r="12" fill="#1f2937" />
-          <circle cx="90" cy="30" r="6" fill="#facc15" />
-          <circle cx="90" cy="30" r="2" fill="#000" />
-          <circle cx="50" cy="20" r="6" fill="#fff" />
-          <text x="50" y="23" fontSize="8" fontFamily="sans-serif" fontWeight="900" fill="#000" textAnchor="middle" stroke="none">66</text>
-        </g>
-      </svg>
-    );
+        window.firebaseApp = initializeApp(firebaseConfig);
+        window.db = getFirestore(window.firebaseApp);
+        window.auth = getAuth(window.firebaseApp);
+        window.firebaseModules = { doc, onSnapshot, setDoc, updateDoc, signInAnonymously };
+    </script>
 
-    const App = () => {
-      const [progress, setProgress] = useState(Array(10).fill(0));
-      const [isRunning, setIsRunning] = useState(false);
-      const [winner, setWinner] = useState(null);
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-      useEffect(() => {
-        let interval;
-        if (isRunning && winner === null) {
-          interval = setInterval(() => {
-            setProgress((prev) => {
-              const newProgress = [...prev];
-              let hasWinner = false;
-              let winningTable = -1;
-              for (let i = 0; i < 10; i++) {
-                const boost = Math.random() * 4;
-                newProgress[i] = Math.min(newProgress[i] + boost, 100);
-                if (newProgress[i] >= 100 && !hasWinner) {
-                  hasWinner = true;
-                  winningTable = i + 1;
+        function MainScreen() {
+            const [gameState, setGameState] = useState("waiting"); // waiting, playing, finished
+            const [scores, setScores] = useState(Array(10).fill(0));
+            const [winner, setWinner] = useState(null);
+            const maxScore = 500; 
+
+            useEffect(() => {
+                const initFirebase = async () => {
+                    if (!window.db) return setTimeout(initFirebase, 100);
+                    const { doc, onSnapshot, setDoc, signInAnonymously } = window.firebaseModules;
+                    
+                    try {
+                        await signInAnonymously(window.auth);
+                        console.log("主畫面：已匿名登入 Firebase");
+                        
+                        const gameRef = doc(window.db, "game", "state");
+                        await setDoc(gameRef, { status: "waiting", scores: Array(10).fill(0) }, { merge: true });
+
+                        onSnapshot(gameRef, (docSnap) => {
+                            if (docSnap.exists()) {
+                                const data = docSnap.data();
+                                setGameState(data.status);
+                                if (data.scores) {
+                                    setScores(data.scores);
+                                    checkWinner(data.scores);
+                                }
+                            }
+                        });
+                    } catch (error) {
+                        console.error("Firebase 連線錯誤:", error);
+                    }
+                };
+                initFirebase();
+            }, []);
+
+            const checkWinner = (currentScores) => {
+                const winningTable = currentScores.findIndex(score => score >= maxScore);
+                if (winningTable !== -1 && gameState === "playing") {
+                    setGameState("finished");
+                    setWinner(winningTable + 1);
+                    if (window.db) {
+                        const { doc, updateDoc } = window.firebaseModules;
+                        updateDoc(doc(window.db, "game", "state"), { status: "finished" });
+                    }
                 }
-              }
-              if (hasWinner) {
-                setIsRunning(false);
-                setWinner(winningTable);
-              }
-              return newProgress;
-            });
-          }, 200);
+            };
+
+            const startGame = async () => {
+                setGameState("playing");
+                setScores(Array(10).fill(0));
+                setWinner(null);
+                
+                if (window.db) {
+                    const { doc, updateDoc } = window.firebaseModules;
+                    await updateDoc(doc(window.db, "game", "state"), { 
+                        status: "playing",
+                        scores: Array(10).fill(0)
+                    });
+                }
+            };
+
+            const resetGame = async () => {
+                if (window.db) {
+                    const { doc, updateDoc } = window.firebaseModules;
+                    await updateDoc(doc(window.db, "game", "state"), { 
+                        status: "waiting",
+                        scores: Array(10).fill(0)
+                    });
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col p-8">
+                    <div className="text-center mb-8">
+                        <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 drop-shadow-lg mb-2">
+                            2027 橡前奔馳：綠能驅動
+                        </h1>
+                        <p className="text-xl text-gray-400">請大家拿起手機輸入桌號！目標 500 分！</p>
+                    </div>
+
+                    <div className="flex-1 w-full max-w-6xl mx-auto relative">
+                        {scores.map((score, index) => {
+                            const progress = Math.min((score / maxScore) * 100, 100);
+                            return (
+                                <div key={index} className="flex items-center mb-4">
+                                    <div className="w-16 text-2xl font-bold text-emerald-400">第 {index + 1} 桌</div>
+                                    <div className="flex-1 relative">
+                                        <div className="track">
+                                            <div className="finish-line"></div>
+                                            <div 
+                                                className="car" 
+                                                style={{ left: `calc(${progress}% - ${progress > 5 ? 120 : 0}px)` }}
+                                            >
+                                                {score}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="text-center mt-8 space-x-4">
+                        {gameState === "waiting" && (
+                            <button onClick={startGame} className="bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 px-12 rounded-full text-2xl shadow-[0_0_20px_rgba(16,185,129,0.5)] transition-all transform hover:scale-105">
+                                開始挑戰！
+                            </button>
+                        )}
+                        {gameState === "finished" && (
+                            <div className="absolute inset-0 bg-black bg-opacity-90 flex flex-col items-center justify-center z-50">
+                                <h2 className="text-7xl font-black text-emerald-400 mb-8 animate-bounce">
+                                    🏆 恭喜 第 {winner} 桌 奪冠！ 🏆
+                                </h2>
+                                <button onClick={resetGame} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-full text-xl">
+                                    重新開始
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
         }
-        return () => clearInterval(interval);
-      }, [isRunning, winner]);
 
-      const startGame = () => {
-        setProgress(Array(10).fill(0));
-        setWinner(null);
-        setIsRunning(true);
-      };
-
-      return (
-        <div className="min-h-screen bg-[#1e3a8a] bg-grid flex flex-col items-center justify-center p-6 relative overflow-hidden">
-          <div className="text-center mb-6 z-10">
-            <h2 className="text-3xl font-black italic text-white retro-subtitle tracking-wider mb-2">解鎖你的 2027 冠軍賽道</h2>
-            <h1 className="text-6xl md:text-7xl font-black italic text-white retro-title tracking-widest transform -skew-x-6">綠能方程式</h1>
-          </div>
-
-          <div className="w-full max-w-6xl bg-white border-4 border-black rounded-xl shadow-[12px_12px_0px_#000] overflow-hidden z-10 flex flex-col">
-            <div className="bg-[#f1f5f9] border-b-4 border-black p-3 flex justify-between items-center">
-              <div className="flex items-center gap-4">
-                <div className="flex gap-2">
-                  <div className="w-5 h-5 rounded-full bg-[#e11d48] border-2 border-black"></div>
-                  <div className="w-5 h-5 rounded-full bg-[#facc15] border-2 border-black"></div>
-                  <div className="w-5 h-5 rounded-full bg-[#22c55e] border-2 border-black"></div>
-                </div>
-                <span className="font-black text-black text-xl tracking-wider uppercase font-['Righteous']">TSRC_Racing.exe</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1 bg-black text-white text-sm font-bold font-mono rounded">
-                <span className="animate-pulse">●</span> LIVE
-              </div>
-            </div>
-
-            <div className="bg-[#38bdf8] p-6 relative">
-              <div className="absolute top-0 left-0 w-full h-4 bg-checkerboard opacity-20"></div>
-              <div className="absolute bottom-0 left-0 w-full h-4 bg-checkerboard opacity-20"></div>
-              <div className="absolute top-0 right-0 w-16 h-full bg-checkerboard border-l-4 border-black z-0"></div>
-              <div className="absolute top-0 right-16 w-4 h-full bg-[#e11d48] border-l-4 border-black z-0"></div>
-
-              <div className="relative z-10 flex flex-col gap-[14px]">
-                {progress.map((val, idx) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <div className="w-16 h-10 bg-[#facc15] border-4 border-black rounded flex items-center justify-center shadow-[3px_3px_0px_#000] z-20 shrink-0">
-                      <span className="font-black text-xl text-black">#{idx + 1}</span>
-                    </div>
-                    <div className="flex-1 h-10 bg-white border-4 border-black rounded-r-full relative shadow-[inset_0px_4px_0px_rgba(0,0,0,0.1)]">
-                      <div className="h-full bg-[#22c55e] border-r-4 border-black transition-all duration-200 ease-linear rounded-r-full flex items-center justify-end pr-2" style={{ width: `${Math.max(val, 5)}%` }}>
-                        <span className="text-black font-black italic mr-8 text-sm opacity-80">{Math.floor(val)}%</span>
-                      </div>
-                      <div className="absolute top-1/2 -translate-y-1/2 transition-all duration-200 ease-linear z-30" style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
-                        <F1CarSVG />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <button onClick={startGame} disabled={isRunning} className={`mt-8 px-10 py-4 rounded-full border-4 border-black font-black text-2xl tracking-widest flex items-center gap-4 transition-all z-10 ${isRunning ? 'bg-gray-400 text-gray-700 cursor-not-allowed shadow-[0px_0px_0px_#000] translate-y-[6px]' : 'bg-[#e11d48] text-white shadow-[6px_6px_0px_#000] hover:bg-[#be123c] active:shadow-[0px_0px_0px_#000] active:translate-y-[6px]'}`}>
-            <span>◀</span> {isRunning ? '賽事進行中...' : '開始挑戰'} <span>▶</span>
-          </button>
-
-          {winner && (
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-[#facc15] border-8 border-black p-10 max-w-2xl text-center shadow-[16px_16px_0px_#e11d48] transform rotate-2 animate-bounce">
-                <div className="flex justify-center mb-6"><TrophyIcon /></div>
-                <h2 className="text-7xl font-black italic text-white retro-title mb-4 uppercase">WINNER!</h2>
-                <div className="bg-white border-4 border-black p-4 inline-block mb-6 shadow-[6px_6px_0px_#000]">
-                  <p className="text-4xl font-black text-black">第 <span className="text-[#e11d48] text-6xl">{winner}</span> 桌</p>
-                </div>
-                <p className="text-2xl font-black text-black bg-[#22c55e] border-4 border-black py-2 px-4 shadow-[4px_4px_0px_#000]">跑出命定奪冠路線！率先取得 2027 產線認證！</p>
-                <button onClick={() => setWinner(null)} className="mt-8 bg-black text-white px-8 py-3 font-bold text-xl hover:bg-gray-800 transition-colors">[ 關閉視窗 / CLOSE ]</button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    };
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
+        ReactDOM.render(<MainScreen />, document.getElementById('root'));
+    </script>
 </body>
 </html>
