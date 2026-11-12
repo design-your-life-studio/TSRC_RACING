@@ -126,6 +126,11 @@
       100% { transform: translateY(-100vh) scale(1); opacity: 0; }
     }
     .bubble-anim { animation: floatUp linear forwards; }
+    /* 扣分回饋：紅光＋畫面晃動 */
+    .m-flash { background: rgba(225,29,72,.35); animation: mFlash .35s ease-out forwards; }
+    @keyframes mFlash { from { opacity: 1; } to { opacity: 0; } }
+    .m-shake { animation: mShake .3s; }
+    @keyframes mShake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 
     @keyframes popScore {
       0% { transform: scale(0.5) rotate(-15deg); opacity: 1; }
@@ -160,7 +165,9 @@
     const TARGET_SCORE = 500;       // 任一組先到此分數，比賽立即結束
     const RACE_DURATION = 30;       // 比賽秒數
     const COUNTDOWN_MS = 3000;      // 3、2、1 倒數
-    const SPAWN_INTERVAL = 800;     // 泡泡生成間隔（原始設定）
+    const SPAWN_INTERVAL = 650;     // 物件生成間隔：每 0.65 秒一個
+    const FLOAT_MIN = 2, FLOAT_MAX = 3;   // 物件從底部飄到頂端的秒數（原本 4～6 秒，加速 2 倍）
+    const HAZARD_RATIO = 0.4;       // 扣分物件比例 40%
     const FLUSH_MS = 300;           // 分數回傳間隔
     const MAX_STEP = 60;            // 單次回傳最多增加的分數（與資料庫規則一致）
     const CAR_COLORS = [
@@ -181,7 +188,31 @@
       { id: 'silver',  hex: '#b8c2cc', name: '銀河灰' },
       { id: 'black',   hex: '#1f2328', name: '碳纖黑' },
     ];
-    // 原始遊戲的三種泡泡
+    // 扣分物件（A 貼紙款）：香蕉皮 −10、三角錐 −20，各占扣分物件的一半
+    const HAZ_SVG = (inner) => `<svg viewBox="0 0 64 64" width="88" height="88" style="overflow:visible;filter:drop-shadow(3px 3px 0 #000)"><g stroke="#000" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round">${inner}</g></svg>`;
+    const BANANA_SVG = HAZ_SVG(`
+      <path d="M26,36 C17,35 7,41 3,53 C3,56 4,58 6,58 C12,58 20,53 28,47 Z" fill="#facc15"/>
+      <path d="M25,40 C18,41 11,46 8,52 C13,53 19,50 27,46 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M3,53 C3,56 4,58 6,58 C7.5,56.5 6.5,54 3,53 Z" fill="#7c3f12"/>
+      <path d="M38,36 C47,35 57,41 61,53 C61,56 60,58 58,58 C52,58 44,53 36,47 Z" fill="#facc15"/>
+      <path d="M39,40 C46,41 53,46 56,52 C51,53 45,50 37,46 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M61,53 C61,56 60,58 58,58 C56.5,56.5 57.5,54 61,53 Z" fill="#7c3f12"/>
+      <path d="M24,44 C23,34 24,23 28,16 L36,16 C40,23 41,34 40,44 C36,47 28,47 24,44 Z" fill="#facc15"/>
+      <path d="M28.5,22 C27.5,28 27.5,34 28.5,40" fill="none" stroke="#fff" stroke-width="2.4" opacity=".9"/>
+      <path d="M29.5,7 L34.5,7 L34,17 L30,17 Z" fill="#7c3f12"/>
+      <path d="M27,44 C27,52 25,57 21,61 C28,63 37,61 40,55 C40,51 39,47 38,44 C34,46 30,46 27,44 Z" fill="#fde047"/>
+      <path d="M30,48 C30,53 28,57 26,59 C31,59 35,56 36,52 C36,50 36,49 35,48 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M21,61 C23,59.6 25,59.6 26.5,61.6 C24.5,62.6 22.5,62.6 21,61 Z" fill="#7c3f12"/>`);
+    const CONE_SVG = HAZ_SVG(`
+      <path d="M8,51 L56,51 L56,58 L8,58 Z" fill="#1f2328"/>
+      <path d="M29,8 Q32,4 35,8 L46,51 L18,51 Z" fill="#ff6a00"/>
+      <path d="M27.7,20 L36.3,20 L38.4,28 L25.6,28 Z" fill="#fff"/>
+      <path d="M23,36 L41,36 L43.2,44 L20.8,44 Z" fill="#fff"/>`);
+    const HAZARD_TYPES = [
+      { hazard: 'banana', text: '香蕉皮', pts: -10, svg: BANANA_SVG },
+      { hazard: 'cone', text: '三角錐', pts: -20, svg: CONE_SVG },
+    ];
+    // 原始遊戲的三種泡泡（+10）
     const BUBBLE_TYPES = [
       { text: '低滾動阻力', color: 'bg-[#38bdf8]' },
       { text: '耐磨', color: 'bg-[#f472b6]' },
@@ -431,6 +462,8 @@
       const [myScore, setMyScore] = useState(0);
       const [bubbles, setBubbles] = useState([]);
       const [pops, setPops] = useState([]);
+      const [hit, setHit] = useState(0);          // 被扣分的次數（觸發紅光）
+      const raceAreaRef = useRef(null);          // 比賽畫面（扣分時晃動）
       const offsetRef = useRef(0);
       const scoreRef = useRef(0);       // 本場個人累積分數（本機）
       const sentRef = useRef(0);        // 已成功寫入資料庫的分數
@@ -555,12 +588,12 @@
         }).catch(() => {});
       }, [countdownAt, myKey, uid]);
 
-      // 分數回傳：比賽中每 0.3 秒送出一次累積分數（只送自己的，只增不減）
+      // 分數回傳：比賽中每 0.3 秒送出一次累積分數（只送自己的；加分每次最多 +60，扣分直接送出）
       useEffect(() => {
         if (status !== 'racing' || !myKey || !uid) return;
         const flush = () => {
-          if (inflightRef.current || scoreRef.current <= sentRef.current) return;
-          const next = Math.min(scoreRef.current, sentRef.current + MAX_STEP);
+          if (inflightRef.current || scoreRef.current === sentRef.current) return;
+          const next = scoreRef.current > sentRef.current ? Math.min(scoreRef.current, sentRef.current + MAX_STEP) : scoreRef.current;
           inflightRef.current = true;
           set(ref(db, `${roomPath}/scores/${myKey}/${uid}`), { s: next, t: serverTimestamp() })
             .then(() => { sentRef.current = next; })
@@ -571,15 +604,16 @@
         return () => clearInterval(id);
       }, [status, myKey, uid, roomPath]);
 
-      // 泡泡生成（原始遊戲：每 0.8 秒一顆，4～6 秒浮上去）
+      // 物件生成：每 0.65 秒一個，2～3 秒浮上去；40% 是扣分物件
       useEffect(() => {
         if (!playing) { setBubbles([]); return; }
         const timers = [];
         const spawn = () => {
-          const type = BUBBLE_TYPES[Math.floor(Math.random() * BUBBLE_TYPES.length)];
+          const pool = Math.random() < HAZARD_RATIO ? HAZARD_TYPES : BUBBLE_TYPES;
+          const type = pool[Math.floor(Math.random() * pool.length)];
           const id = ++idRef.current;
           const left = Math.max(10, Math.min(70, Math.random() * 80));
-          const duration = 4 + Math.random() * 2;
+          const duration = FLOAT_MIN + Math.random() * (FLOAT_MAX - FLOAT_MIN);
           setBubbles(prev => [...prev, { id, ...type, left, duration }]);
           timers.push(setTimeout(() => setBubbles(prev => prev.filter(b => b.id !== id)), duration * 1000));
         };
@@ -588,16 +622,22 @@
         return () => { clearInterval(iv); timers.forEach(clearTimeout); };
       }, [playing]);
 
-      // 戳泡泡：+10（原始得分邏輯），按下瞬間就算
+      // 戳物件：泡泡 +10；香蕉皮 −10、三角錐 −20（最低 0 分，不會變負分），按下瞬間就算
       const handlePop = (e, bubble) => {
         e.preventDefault(); e.stopPropagation();
         if (!playing) return;
-        if (navigator.vibrate) navigator.vibrate(50);
-        scoreRef.current += POINTS_PER_BUBBLE;
+        const pts = bubble.pts ?? POINTS_PER_BUBBLE;
+        if (navigator.vibrate) navigator.vibrate(pts < 0 ? [70, 40, 70] : 50);
+        scoreRef.current = Math.max(0, scoreRef.current + pts);
         setMyScore(scoreRef.current);
+        if (pts < 0) {   // 扣分：畫面閃紅光並晃一下
+          setHit(h => h + 1);
+          const el = raceAreaRef.current;
+          if (el) { el.classList.remove('m-shake'); void el.offsetWidth; el.classList.add('m-shake'); }
+        }
         const rect = e.currentTarget.getBoundingClientRect();
         const popId = ++idRef.current;
-        setPops(prev => [...prev, { id: popId, x: rect.left + rect.width / 2, y: rect.top }]);
+        setPops(prev => [...prev, { id: popId, pts, x: rect.left + rect.width / 2, y: rect.top }]);
         setBubbles(prev => prev.filter(b => b.id !== bubble.id));
         setTimeout(() => setPops(prev => prev.filter(p => p.id !== popId)), 600);
       };
@@ -725,7 +765,7 @@
 
           <div className="flex-1 relative flex flex-col min-h-0">
           {inRace ? (
-            <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
+            <div ref={raceAreaRef} className="flex-1 flex flex-col relative z-10 overflow-hidden">
               {/* 狀態列：組別、剩餘時間、即時分數 */}
               <div className="p-3 shrink-0">
                 <div className="bg-[#facc15] border-4 border-black retro-shadow p-2 flex justify-between items-center gap-2">
@@ -753,7 +793,15 @@
 
               {/* 遊戲互動區（原始泡泡玩法）*/}
               <div className="flex-1 relative touch-none select-none">
-                {bubbles.map(bubble => (
+                {bubbles.map(bubble => bubble.hazard ? (
+                  /* 扣分物件：香蕉皮／三角錐（貼紙款＋紅色扣分標籤）*/
+                  <div key={bubble.id} data-bubble data-hazard={bubble.hazard} onPointerDown={(e) => handlePop(e, bubble)}
+                    className="absolute bottom-0 w-24 h-24 flex items-center justify-center cursor-pointer bubble-anim"
+                    style={{ left: `${bubble.left}%`, animationDuration: `${bubble.duration}s` }}>
+                    <span className="absolute -top-1.5 -right-2.5 z-10 bg-[#e11d48] text-white border-[3px] border-black rounded-full px-2 pb-0.5 font-latin text-xl leading-none rotate-[8deg] shadow-[2px_2px_0_#000] pointer-events-none">{bubble.pts}</span>
+                    <div className="pointer-events-none" dangerouslySetInnerHTML={{ __html: bubble.svg }}></div>
+                  </div>
+                ) : (
                   <div key={bubble.id} data-bubble onPointerDown={(e) => handlePop(e, bubble)}
                     className={`absolute bottom-0 w-24 h-24 ${bubble.color} border-4 border-black rounded-full flex items-center justify-center p-2 cursor-pointer shadow-[inset_-4px_-4px_0px_rgba(0,0,0,0.2)] retro-shadow-sm bubble-anim`}
                     style={{ left: `${bubble.left}%`, animationDuration: `${bubble.duration}s` }}>
@@ -761,6 +809,9 @@
                     <div className="absolute top-2 left-2 w-4 h-4 bg-white rounded-full opacity-60 pointer-events-none"></div>
                   </div>
                 ))}
+
+                {/* 扣分時紅光閃一下 */}
+                {hit > 0 && <div key={hit} className="m-flash absolute inset-0 pointer-events-none z-20"></div>}
 
                 {/* 倒數 3、2、1、GO */}
                 {raceStart && now < raceStart + 800 && (() => {
@@ -787,7 +838,7 @@
               {/* 點擊特效 +10 */}
               {pops.map(pop => (
                 <div key={pop.id} className="fixed z-50 pointer-events-none score-pop" style={{ left: pop.x - 20, top: pop.y - 20 }}>
-                  <span className="text-3xl font-black italic text-[#facc15]">+{POINTS_PER_BUBBLE}</span>
+                  <span className={`text-3xl font-black italic ${pop.pts < 0 ? 'text-[#e11d48]' : 'text-[#facc15]'}`} style={{ WebkitTextStroke: '1px #000' }}>{pop.pts < 0 ? pop.pts : `+${pop.pts}`}</span>
                 </div>
               ))}
             </div>
