@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>綠能方程式 - 大螢幕主畫面</title>
-  
+
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -31,17 +31,17 @@
       text-shadow: 3px 3px 0px #1d4ed8, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
     }
     .bg-checkerboard {
-      background-image: 
-        linear-gradient(45deg, #1f2937 25%, transparent 25%), 
-        linear-gradient(-45deg, #1f2937 25%, transparent 25%), 
-        linear-gradient(45deg, transparent 75%, #1f2937 75%), 
+      background-image:
+        linear-gradient(45deg, #1f2937 25%, transparent 25%),
+        linear-gradient(-45deg, #1f2937 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1f2937 75%),
         linear-gradient(-45deg, transparent 75%, #1f2937 75%);
       background-size: 20px 20px;
       background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
     }
     .bg-grid {
       background-size: 40px 40px;
-      background-image: 
+      background-image:
         linear-gradient(to right, rgba(255,255,255,0.1) 2px, transparent 2px),
         linear-gradient(to bottom, rgba(255,255,255,0.1) 2px, transparent 2px);
     }
@@ -52,38 +52,53 @@
 
   <script type="text/babel" data-type="module">
     import { initializeApp } from 'firebase/app';
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-    import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, doc, setDoc, updateDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
-    // --- Firebase 初始化區塊 ---
-    // 未來部署到 Github Pages 時，請將下方的 JSON.parse 區塊替換成您自己的 Firebase Config 結構
-    const getFirebaseConfig = () => {
-      if (typeof __firebase_config !== 'undefined') return JSON.parse(__firebase_config);
-      return {
-       apiKey: "AIzaSyAVKXL-r-MM2NSs9f6T9LPX70b-CAgCXQY",
-       authDomain: "tsrc-racing.firebaseapp.com",
-       projectId: "tsrc-racing",
-       storageBucket: "tsrc-racing.firebasestorage.app",
-       messagingSenderId: "859095220602",
-       appId: "1:859095220602:web:70c4d9be106383a97656c3",
-       measurementId: "G-1RLXCDE731"
-      };
+    // ================= 遊戲設定（要調整都改這裡）=================
+    const TOTAL_TABLES = 60;        // 總桌數
+    const TABLES_PER_ROUND = 10;    // 每梯次桌數
+    const TOTAL_ROUNDS = Math.ceil(TOTAL_TABLES / TABLES_PER_ROUND);
+    const GAME_DURATION = 30;       // 每場秒數
+    const TARGET_SCORE = 1500;      // 進度條跑滿所需分數（彩排後依實際分數微調）
+    const JUDGE_DELAY = 2500;       // 時間到後，等手機最後一次回傳分數的緩衝 (毫秒)
+
+    // ================= Firebase =================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAVKXL-r-MM2NSs9f6T9LPX70b-CAgCXQY",
+      authDomain: "tsrc-racing.firebaseapp.com",
+      projectId: "tsrc-racing",
+      storageBucket: "tsrc-racing.firebasestorage.app",
+      messagingSenderId: "859095220602",
+      appId: "1:859095220602:web:70c4d9be106383a97656c3",
+      measurementId: "G-1RLXCDE731"
     };
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'tsrc-game-default';
-    
-    const firebaseConfig = getFirebaseConfig();
-    const isFirebaseConfigured = Object.keys(firebaseConfig).length > 0;
+    const APP_ID = 'tsrc-game-default';
 
-    let app, auth, db;
-    if (isFirebaseConfigured) {
-      app = initializeApp(firebaseConfig);
-      auth = getAuth(app);
-      db = getFirestore(app);
-    }
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    // 遊戲狀態（一份）：status / round / gameId / startedAt / winners / finalScores
+    const stateRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'game', 'state');
+    // 每位玩家一份文件：{ gameId, table, score }，由大螢幕加總成各桌分數
+    const playersCol = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
 
-    // --- UI 元件 ---
+    // ================= 工具 =================
+    const roundTables = (round) => {
+      const start = (round - 1) * TABLES_PER_ROUND + 1;
+      const end = Math.min(round * TABLES_PER_ROUND, TOTAL_TABLES);
+      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    };
+    // 舊格式或缺少 gameId 的資料一律視為「等待中」
+    const getStatus = (game) => {
+      if (!game || game.status === 'waiting' || !game.gameId) return 'waiting';
+      return game.status;
+    };
+    const formatTime = (s) => `00:${String(Math.max(0, s)).padStart(2, '0')}`;
+
+    // ================= UI 元件 =================
     const TrophyIcon = () => (
       <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#e11d48] drop-shadow-[4px_4px_0px_#000]">
         <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
@@ -111,133 +126,141 @@
       </svg>
     );
 
-    // 到達終點的目標分數
-    const TARGET_SCORE = 500; 
-
     const App = () => {
       const [user, setUser] = useState(null);
-      const [progress, setProgress] = useState(Array(10).fill(0));
-      const [status, setStatus] = useState('waiting'); // waiting, playing, finished
-      const [winner, setWinner] = useState(null);
+      const [game, setGame] = useState(null);
+      const [selectedRound, setSelectedRound] = useState(1);
+      const [liveScores, setLiveScores] = useState({});
+      const [playerCounts, setPlayerCounts] = useState({});
+      const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
+      const [errorMsg, setErrorMsg] = useState('');
+      const liveScoresRef = useRef({});
+      const timeUpSentRef = useRef(null);
 
-      // 1. 處理身份驗證
+      const status = getStatus(game);
+      const round = game?.round || 1;
+      const gameId = status === 'waiting' ? null : game.gameId;
+      const displayRound = status === 'waiting' ? selectedRound : round;
+
+      // 1. 匿名登入
       useEffect(() => {
-        if (!isFirebaseConfigured) {
-          setUser({ uid: 'mock-local-user' });
-          return;
-        }
-
-        const initAuth = async () => {
-          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-            await signInWithCustomToken(auth, __initial_auth_token);
-          } else {
-            await signInAnonymously(auth);
-          }
-        };
-        initAuth();
-        const unsubscribe = onAuthStateChanged(auth, setUser);
-        return () => unsubscribe();
+        signInAnonymously(auth).catch(err => {
+          console.error('匿名登入失敗', err);
+          setErrorMsg('Firebase 登入失敗，請確認網路與匿名登入設定');
+        });
+        return onAuthStateChanged(auth, setUser);
       }, []);
 
-      // 2. 監聽資料庫狀態，將大家的分數轉換成進度條
+      // 2. 監聽遊戲狀態
       useEffect(() => {
         if (!user) return;
-        
-        if (!isFirebaseConfigured) {
-          // 本地測試模式：模擬其他桌的賽車跑動效果
-          if (status === 'playing') {
-            const interval = setInterval(() => {
-              setProgress(prev => {
-                const newP = [...prev];
-                let hasWinner = false;
-                for(let i=0; i<10; i++) {
-                   newP[i] += Math.random() * 4;
-                   if (newP[i] >= 100 && !hasWinner) {
-                      newP[i] = 100;
-                      setWinner(i + 1);
-                      setStatus('finished');
-                      hasWinner = true;
-                   }
-                }
-                return newP;
-              });
-            }, 1000);
-            return () => clearInterval(interval);
-          }
-          return;
-        }
+        return onSnapshot(stateRef,
+          snap => setGame(snap.exists() ? snap.data() : null),
+          err => { console.error('Firebase Sync Error', err); setErrorMsg('讀取遊戲狀態失敗，請檢查 Firestore 規則'); }
+        );
+      }, [user]);
 
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'game', 'state');
-        const unsubscribe = onSnapshot(docRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            setStatus(data.status || 'waiting');
-            setWinner(data.winner || null);
-            
-            if (data.scores) {
-              const newProgress = [];
-              let currentWinner = null;
-              
-              // 結算 1 到 10 桌的進度
-              for (let i = 1; i <= 10; i++) {
-                const score = data.scores[i] || 0;
-                const percent = Math.min((score / TARGET_SCORE) * 100, 100);
-                newProgress.push(percent);
-                
-                // 如果有人達到 100%，標記為贏家
-                if (percent >= 100 && !currentWinner) {
-                  currentWinner = i;
-                }
-              }
-              setProgress(newProgress);
-              
-              // 如果遊戲還在進行中，但有人贏了，主動更新資料庫結束遊戲
-              if (currentWinner && data.status === 'playing') {
-                updateDoc(docRef, { status: 'finished', winner: currentWinner }).catch(console.error);
-              }
-            }
-          }
-        }, (error) => console.error("Firebase Sync Error", error));
-        
-        return () => unsubscribe();
-      }, [user, status]);
+      // 梯次與資料庫同步（例如重新整理頁面時）
+      useEffect(() => {
+        if (game?.round) setSelectedRound(game.round);
+      }, [game?.round]);
 
-      // 3. 由主辦單位點擊開始遊戲
+      // 3. 監聽本場所有玩家的分數，加總成各桌分數
+      useEffect(() => {
+        liveScoresRef.current = {};
+        setLiveScores({});
+        setPlayerCounts({});
+        if (!user || !gameId) return;
+        const q = query(playersCol, where('gameId', '==', gameId));
+        return onSnapshot(q, snap => {
+          const totals = {};
+          const counts = {};
+          snap.forEach(d => {
+            const p = d.data();
+            totals[p.table] = (totals[p.table] || 0) + (p.score || 0);
+            counts[p.table] = (counts[p.table] || 0) + 1;
+          });
+          liveScoresRef.current = totals;
+          setLiveScores(totals);
+          setPlayerCounts(counts);
+        }, err => console.error('玩家分數監聽失敗', err));
+      }, [user, gameId]);
+
+      // 4. 倒數計時：時間到 → 進入「計算成績」
+      useEffect(() => {
+        if (status !== 'playing' || !game.startedAt) return;
+        const duration = game.duration || GAME_DURATION;
+        const tick = () => {
+          const left = duration - (Date.now() - game.startedAt) / 1000;
+          setTimeLeft(Math.max(0, Math.ceil(left)));
+          if (left <= 0 && timeUpSentRef.current !== gameId) {
+            timeUpSentRef.current = gameId;
+            updateDoc(stateRef, { status: 'judging' }).catch(console.error);
+          }
+        };
+        tick();
+        const t = setInterval(tick, 200);
+        return () => clearInterval(t);
+      }, [status, gameId]);
+
+      // 5. 計算成績：等手機最後一次回傳後結算（重新整理頁面也會接續完成）
+      useEffect(() => {
+        if (status !== 'judging') return;
+        const tables = roundTables(round);
+        const t = setTimeout(() => {
+          const finalScores = {};
+          tables.forEach(n => { finalScores[n] = liveScoresRef.current[n] || 0; });
+          const max = Math.max(0, ...Object.values(finalScores));
+          const winners = max > 0 ? tables.filter(n => finalScores[n] === max) : [];
+          updateDoc(stateRef, { status: 'finished', winners, finalScores }).catch(console.error);
+        }, JUDGE_DELAY);
+        return () => clearTimeout(t);
+      }, [status, gameId, round]);
+
+      // 選擇梯次（只在等待中可切換，同步給手機顯示）
+      const selectRound = (r) => {
+        if (status !== 'waiting') return;
+        setSelectedRound(r);
+        setDoc(stateRef, { status: 'waiting', round: r, gameId: null }, { merge: true }).catch(console.error);
+      };
+
       const startGame = async () => {
-        if (!user) return;
-        
-        if (!isFirebaseConfigured) {
-          setStatus('playing');
-          setProgress(Array(10).fill(0));
-          setWinner(null);
-          return;
+        if (!user || status !== 'waiting') return;
+        setTimeLeft(GAME_DURATION);
+        try {
+          await setDoc(stateRef, {
+            status: 'playing',
+            round: selectedRound,
+            gameId: `g${Date.now()}`,
+            startedAt: Date.now(),
+            duration: GAME_DURATION,
+            winners: [],
+            finalScores: null
+          });
+        } catch (err) {
+          console.error(err);
+          setErrorMsg('開始失敗，請檢查網路或 Firestore 規則');
         }
-
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'game', 'state');
-        // 初始化所有桌次分數為 0
-        const initialScores = {};
-        for(let i = 1; i <= 10; i++) initialScores[i] = 0;
-        
-        await setDoc(docRef, {
-          status: 'playing',
-          scores: initialScores,
-          winner: null
-        });
       };
 
+      // 關閉結果並自動切到下一梯次
       const resetGame = async () => {
-        if (!user) return;
-        
-        if (!isFirebaseConfigured) {
-          setStatus('waiting');
-          setProgress(Array(10).fill(0));
-          setWinner(null);
-          return;
-        }
-
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'game', 'state');
-        await updateDoc(docRef, { status: 'waiting', winner: null });
+        const next = Math.min(round + 1, TOTAL_ROUNDS);
+        setSelectedRound(next);
+        try {
+          await setDoc(stateRef, { status: 'waiting', round: next, gameId: null, winners: [], finalScores: null });
+        } catch (err) { console.error(err); }
       };
+
+      const scores = status === 'finished' && game.finalScores ? game.finalScores : liveScores;
+      const winners = status === 'finished' ? (game.winners || []) : [];
+      const tables = roundTables(displayRound);
+      const buttonLabel = {
+        waiting: `第 ${displayRound} 梯次・開始挑戰`,
+        playing: '賽事進行中...',
+        judging: '計算成績中...',
+        finished: '請按 RESET 準備下一梯次'
+      }[status];
 
       return (
         <div className="min-h-screen bg-[#1e3a8a] bg-grid flex flex-col items-center justify-center p-6 relative overflow-hidden">
@@ -245,6 +268,10 @@
             <h2 className="text-3xl font-black italic text-white retro-subtitle tracking-wider mb-2">解鎖你的 2027 冠軍賽道</h2>
             <h1 className="text-6xl md:text-7xl font-black italic text-white retro-title tracking-widest transform -skew-x-6">綠能方程式</h1>
           </div>
+
+          {errorMsg && (
+            <div className="z-20 mb-4 bg-[#e11d48] text-white font-black px-4 py-2 border-4 border-black">{errorMsg}</div>
+          )}
 
           <div className="w-full max-w-6xl bg-white border-4 border-black rounded-xl shadow-[12px_12px_0px_#000] overflow-hidden z-10 flex flex-col">
             <div className="bg-[#f1f5f9] border-b-4 border-black p-3 flex justify-between items-center">
@@ -261,6 +288,26 @@
               </div>
             </div>
 
+            {/* 梯次選擇 + 倒數計時 */}
+            <div className="bg-[#facc15] border-b-4 border-black px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-black text-black text-lg mr-1">梯次</span>
+                {Array.from({ length: TOTAL_ROUNDS }, (_, i) => i + 1).map(r => {
+                  const t = roundTables(r);
+                  const active = r === displayRound;
+                  return (
+                    <button key={r} onClick={() => selectRound(r)} disabled={status !== 'waiting'}
+                      className={`px-3 py-1 border-4 border-black font-black text-sm transition-all ${active ? 'bg-[#e11d48] text-white shadow-[3px_3px_0px_#000]' : 'bg-white text-black'} ${status !== 'waiting' && !active ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                      {r}（{t[0]}–{t[t.length - 1]}桌）
+                    </button>
+                  );
+                })}
+              </div>
+              <div className={`px-5 py-1 border-4 border-black font-black text-4xl font-mono shadow-[4px_4px_0px_#000] ${status === 'playing' && timeLeft <= 5 ? 'bg-[#e11d48] text-white animate-pulse' : 'bg-black text-[#facc15]'}`}>
+                {formatTime(status === 'playing' ? timeLeft : status === 'waiting' ? GAME_DURATION : 0)}
+              </div>
+            </div>
+
             <div className="bg-[#38bdf8] p-6 relative">
               <div className="absolute top-0 left-0 w-full h-4 bg-checkerboard opacity-20"></div>
               <div className="absolute bottom-0 left-0 w-full h-4 bg-checkerboard opacity-20"></div>
@@ -268,39 +315,69 @@
               <div className="absolute top-0 right-16 w-4 h-full bg-[#e11d48] border-l-4 border-black z-0"></div>
 
               <div className="relative z-10 flex flex-col gap-[14px]">
-                {progress.map((val, idx) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <div className="w-16 h-10 bg-[#facc15] border-4 border-black rounded flex items-center justify-center shadow-[3px_3px_0px_#000] z-20 shrink-0">
-                      <span className="font-black text-xl text-black">#{idx + 1}</span>
-                    </div>
-                    <div className="flex-1 h-10 bg-white border-4 border-black rounded-r-full relative shadow-[inset_0px_4px_0px_rgba(0,0,0,0.1)]">
-                      <div className="h-full bg-[#22c55e] border-r-4 border-black transition-all duration-300 ease-out rounded-r-full flex items-center justify-end pr-2" style={{ width: `${Math.max(val, 5)}%` }}>
-                        <span className="text-black font-black italic mr-8 text-sm opacity-80">{Math.floor(val)}%</span>
+                {tables.map(t => {
+                  const s = scores[t] || 0;
+                  const val = Math.min((s / TARGET_SCORE) * 100, 100);
+                  const isWinner = winners.includes(t);
+                  const count = playerCounts[t] || 0;
+                  return (
+                    <div key={t} className="flex items-center gap-3">
+                      <div className={`w-16 h-10 border-4 border-black rounded flex flex-col items-center justify-center shadow-[3px_3px_0px_#000] z-20 shrink-0 leading-none ${isWinner ? 'bg-[#e11d48] text-white' : 'bg-[#facc15] text-black'}`}>
+                        <span className="font-black text-lg">#{t}</span>
+                        {status !== 'waiting' && <span className="font-bold text-[10px]">{count} 人</span>}
                       </div>
-                      <div className="absolute top-1/2 -translate-y-1/2 transition-all duration-300 ease-out z-30" style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
-                        <F1CarSVG />
+                      <div className="flex-1 h-10 bg-white border-4 border-black rounded-r-full relative shadow-[inset_0px_4px_0px_rgba(0,0,0,0.1)]">
+                        <div className="h-full bg-[#22c55e] border-r-4 border-black transition-all duration-500 ease-out rounded-r-full flex items-center justify-end pr-2" style={{ width: `${Math.max(val, 5)}%` }}>
+                          <span className="text-black font-black italic mr-8 text-sm opacity-80 whitespace-nowrap">{s} 分</span>
+                        </div>
+                        <div className="absolute top-1/2 -translate-y-1/2 transition-all duration-500 ease-out z-30" style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
+                          <F1CarSVG />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
 
-          <button onClick={startGame} disabled={status === 'playing'} className={`mt-8 px-10 py-4 rounded-full border-4 border-black font-black text-2xl tracking-widest flex items-center gap-4 transition-all z-10 ${status === 'playing' ? 'bg-gray-400 text-gray-700 cursor-not-allowed shadow-[0px_0px_0px_#000] translate-y-[6px]' : 'bg-[#e11d48] text-white shadow-[6px_6px_0px_#000] hover:bg-[#be123c] active:shadow-[0px_0px_0px_#000] active:translate-y-[6px]'}`}>
-            <span>◀</span> {status === 'playing' ? '賽事進行中...' : '開始挑戰'} <span>▶</span>
+          <button onClick={startGame} disabled={status !== 'waiting' || !user} className={`mt-8 px-10 py-4 rounded-full border-4 border-black font-black text-2xl tracking-widest flex items-center gap-4 transition-all z-10 ${status !== 'waiting' || !user ? 'bg-gray-400 text-gray-700 cursor-not-allowed shadow-[0px_0px_0px_#000] translate-y-[6px]' : 'bg-[#e11d48] text-white shadow-[6px_6px_0px_#000] hover:bg-[#be123c] active:shadow-[0px_0px_0px_#000] active:translate-y-[6px]'}`}>
+            <span>◀</span> {buttonLabel} <span>▶</span>
           </button>
 
-          {winner && (
+          {/* 時間到：計算成績 */}
+          {status === 'judging' && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-[#e11d48] border-8 border-black px-12 py-8 text-center shadow-[12px_12px_0px_#000] -rotate-2">
+                <h2 className="text-7xl font-black italic text-white retro-subtitle mb-2">TIME UP!</h2>
+                <p className="text-3xl font-black text-white animate-pulse">計算成績中...</p>
+              </div>
+            </div>
+          )}
+
+          {/* 冠軍公布 */}
+          {status === 'finished' && (
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
               <div className="bg-[#facc15] border-8 border-black p-10 max-w-2xl text-center shadow-[16px_16px_0px_#e11d48] transform rotate-2 animate-bounce">
                 <div className="flex justify-center mb-6"><TrophyIcon /></div>
                 <h2 className="text-7xl font-black italic text-white retro-title mb-4 uppercase">WINNER!</h2>
-                <div className="bg-white border-4 border-black p-4 inline-block mb-6 shadow-[6px_6px_0px_#000]">
-                  <p className="text-4xl font-black text-black">第 <span className="text-[#e11d48] text-6xl">{winner}</span> 桌</p>
-                </div>
-                <p className="text-2xl font-black text-black bg-[#22c55e] border-4 border-black py-2 px-4 shadow-[4px_4px_0px_#000]">跑出命定奪冠路線！率先取得 2027 產線認證！</p>
-                <button onClick={resetGame} className="mt-8 bg-black text-white px-8 py-3 font-bold text-xl hover:bg-gray-800 transition-colors">[ 關閉並準備下一場 / RESET ]</button>
+                {winners.length > 0 ? (
+                  <>
+                    <div className="bg-white border-4 border-black p-4 inline-block mb-6 shadow-[6px_6px_0px_#000]">
+                      <p className="text-4xl font-black text-black">
+                        第 <span className="text-[#e11d48] text-6xl">{winners.join('、')}</span> 桌
+                        {winners.length > 1 && <span className="text-2xl">（並列）</span>}
+                      </p>
+                      <p className="text-xl font-black text-black mt-2">{scores[winners[0]] || 0} 分</p>
+                    </div>
+                    <p className="text-2xl font-black text-black bg-[#22c55e] border-4 border-black py-2 px-4 shadow-[4px_4px_0px_#000]">跑出命定奪冠路線！率先取得 2027 產線認證！</p>
+                  </>
+                ) : (
+                  <div className="bg-white border-4 border-black p-4 inline-block mb-6 shadow-[6px_6px_0px_#000]">
+                    <p className="text-3xl font-black text-black">本場無人得分</p>
+                  </div>
+                )}
+                <button onClick={resetGame} className="mt-8 bg-black text-white px-8 py-3 font-bold text-xl hover:bg-gray-800 transition-colors">[ 關閉並準備下一梯次 / RESET ]</button>
               </div>
             </div>
           )}
