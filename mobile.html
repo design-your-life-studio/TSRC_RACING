@@ -23,6 +23,7 @@
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@900&family=Anton&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
     body {
       font-family: 'Noto Sans TC', sans-serif;
       margin: 0; padding: 0;
@@ -79,7 +80,7 @@
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
     import { getDatabase, ref, get, set, update, remove, onValue, onDisconnect, serverTimestamp } from 'firebase/database';
 
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef, useLayoutEffect } = React;
 
     // ================= 遊戲設定（需與 index.html 一致）=================
     const POINTS_PER_BUBBLE = 10;   // 原始得分邏輯：戳破一顆 +10（第四階段使用）
@@ -168,6 +169,48 @@
 
     // 標題字元件：簡單白色黑體，無任何特效
     const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
+
+    // 畫面自動縮放：內容超過螢幕高度時等比縮小，手機永遠不需要捲動
+    const FitArea = ({ children }) => {
+      const outer = useRef(null);
+      const inner = useRef(null);
+      useLayoutEffect(() => {
+        let raf = 0;
+        const fit = () => {
+          const o = outer.current, i = inner.current;
+          if (!o || !i) return;
+          const W = o.clientWidth, H = o.clientHeight;
+          if (!W || !H) return;
+          i.style.transform = 'none'; i.style.minHeight = '0px'; i.style.height = 'auto';
+          // 內容寬度會隨縮放比例改變（例如正方形色塊），所以反覆計算直到確實放得下
+          let s = 1;
+          for (let k = 0; k < 8; k++) {
+            i.style.width = (W / s) + 'px';
+            const h = i.scrollHeight;
+            if (h * s <= H + 0.5) break;
+            s = Math.max(0.3, s * (H / (h * s)) * 0.99);
+          }
+          i.style.width = (W / s) + 'px';
+          i.style.minHeight = (H / s) + 'px';
+          i.style.transform = `scale(${s})`;
+        };
+        const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fit); };
+        fit();
+        const ro = new ResizeObserver(schedule);
+        ro.observe(outer.current);
+        const mo = new MutationObserver(schedule);
+        mo.observe(inner.current, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('resize', schedule);
+        return () => { cancelAnimationFrame(raf); ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule); };
+      }, []);
+      return (
+        <div ref={outer} className="flex-1 relative overflow-hidden z-10">
+          <div ref={inner} className="absolute top-0 left-0 flex flex-col" style={{ transformOrigin: 'top left' }}>
+            {children}
+          </div>
+        </div>
+      );
+    };
 
     const TrafficLight = ({ light }) => (
       <div className="flex gap-1 bg-black rounded-full px-1 py-0.5 shrink-0">
@@ -351,7 +394,7 @@
       const myColor = CAR_COLORS.find(c => c.id === myTeam?.color) || CAR_COLORS[1];
 
       return (
-        <div className="w-full min-h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
+        <div className="w-full h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
           <div className="absolute inset-0 bg-grid z-0 pointer-events-none"></div>
 
           {/* 頂部導覽列 */}
@@ -370,7 +413,7 @@
             <div className="z-30 bg-[#e11d48] text-white font-black text-center text-sm py-1 border-b-4 border-black">連線中斷，正在重新連線...</div>
           )}
 
-          <div className="flex-1 flex flex-col z-10 relative">
+          <FitArea>
 
             {view === 'loading' && (
               <div className="flex-1 flex items-center justify-center text-white font-black animate-pulse">連線中...</div>
@@ -540,7 +583,7 @@
                 <button onClick={leaveTeam} disabled={status !== 'lobby'} className="mx-auto font-black text-white underline">更換車隊</button>
               </div>
             )}
-          </div>
+          </FitArea>
         </div>
       );
     };
