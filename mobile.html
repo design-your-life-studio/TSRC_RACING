@@ -70,6 +70,8 @@
     }
     @keyframes countPop { 0% { transform: scale(1.8); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(0.85); opacity: 0; } }
     .count-pop { animation: countPop 1s ease-out forwards; }
+    @keyframes shakeX { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+    .shake { animation: shakeX 0.4s ease-in-out; }
     .bulb-on-red { background: #ef4444; box-shadow: 0 0 8px 1px #ef4444; }
     .bulb-on-yellow { background: #facc15; box-shadow: 0 0 8px 1px #facc15; }
     .bulb-on-green { background: #22c55e; box-shadow: 0 0 8px 1px #22c55e; }
@@ -94,16 +96,22 @@
     const FLUSH_MS = 300;           // 分數回傳間隔
     const MAX_STEP = 60;            // 單次回傳最多增加的分數（與資料庫規則一致）
     const CAR_COLORS = [
-      { id: 'red',    hex: '#e11d48', name: '賽道紅' },
-      { id: 'blue',   hex: '#3b82f6', name: '極速藍' },
-      { id: 'green',  hex: '#22c55e', name: '綠能綠' },
-      { id: 'yellow', hex: '#facc15', name: '閃電黃' },
-      { id: 'pink',   hex: '#f472b6', name: '霓虹粉' },
-      { id: 'orange', hex: '#f97316', name: '烈焰橘' },
-      { id: 'purple', hex: '#a855f7', name: '電光紫' },
-      { id: 'cyan',   hex: '#38bdf8', name: '天際藍' },
-      { id: 'lime',   hex: '#a3e635', name: '萊姆綠' },
-      { id: 'black',  hex: '#334155', name: '碳纖黑' },
+      { id: 'red',     hex: '#e11d48', name: '賽道紅' },
+      { id: 'orange',  hex: '#ff6a00', name: '螢光橘' },
+      { id: 'gold',    hex: '#c7a017', name: '金沙' },
+      { id: 'yellow',  hex: '#ffe500', name: '螢光黃' },
+      { id: 'lime',    hex: '#a6ff00', name: '螢光綠' },
+      { id: 'green',   hex: '#00b050', name: '翡翠綠' },
+      { id: 'mint',    hex: '#3dffc5', name: '螢光薄荷' },
+      { id: 'teal',    hex: '#00a39a', name: '湖水綠' },
+      { id: 'blue',    hex: '#1f5bff', name: '極速藍' },
+      { id: 'purple',  hex: '#b000ff', name: '螢光紫' },
+      { id: 'pink',    hex: '#ff3ea5', name: '螢光粉' },
+      { id: 'sakura',  hex: '#ffa8d6', name: '櫻花粉' },
+      { id: 'maroon',  hex: '#7a1030', name: '酒紅' },
+      { id: 'brown',   hex: '#7c3f12', name: '咖啡棕' },
+      { id: 'silver',  hex: '#b8c2cc', name: '銀河灰' },
+      { id: 'black',   hex: '#1f2328', name: '碳纖黑' },
     ];
     // 原始遊戲的三種泡泡
     const BUBBLE_TYPES = [
@@ -131,7 +139,7 @@
     // ================= 工具 =================
     const pad2 = (n) => String(n).padStart(2, '0');
     const teamKey = (t) => `t${t}`;
-    const colorHex = (id) => (CAR_COLORS.find(c => c.id === id) || CAR_COLORS[1]).hex;
+    const colorHex = (id) => (CAR_COLORS.find(c => c.id === id) || CAR_COLORS[8]).hex;
     const teamStatus = (room, t) => {
       const players = Object.values(room?.players?.[teamKey(t)] || {}).filter(p => p && p.online);
       if (!players.length) return { light: 'red', count: 0, ready: 0 };
@@ -143,10 +151,15 @@
       return /^\d{6}$/.test(v) ? v : '';
     })();
 
+    const NAME_KEY = 'tsrc_nickname';            // 記住這支手機上次使用的暱稱
+    const NAME_MAX = 10;
+    const cleanName = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
+    const loadName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } };
+    const saveName = (v) => { try { localStorage.setItem(NAME_KEY, v); } catch (e) {} };
     const SESSION_KEY = 'tsrc_player_session';   // 記住這支手機所在的房間與桌號（斷線/重新整理可接回）
     const loadSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { return null; } };
     const saveSession = (v) => { try { v ? localStorage.setItem(SESSION_KEY, JSON.stringify(v)) : localStorage.removeItem(SESSION_KEY); } catch (e) {} };
-    // 組長判定：原組長仍在線就維持；否則由最早加入且在線的玩家接任（所有裝置算出的結果一致）
+    // 隊長判定：原隊長仍在線就維持；否則由最早加入且在線的玩家接任（所有裝置算出的結果一致）
     const resolveLeader = (members, currentUid) => {
       const online = Object.entries(members || {}).filter(([, p]) => p && p.online);
       if (currentUid && online.some(([id]) => id === currentUid)) return currentUid;
@@ -229,27 +242,17 @@
       );
     };
 
-    // 冠軍獎盃（方案 C：實心紅色獎盃＋白星＋格紋底座）
+    // 冠軍獎盃（簡化版：紅色杯身＋白星，黑色底座）
     const TrophyIcon = ({ size = 110 }) => (
       <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
-        <defs>
-          <pattern id="trophy-check" width="6" height="6" patternUnits="userSpaceOnUse">
-            <rect width="6" height="6" fill="#fff" /><rect width="3" height="3" fill="#000" /><rect x="3" y="3" width="3" height="3" fill="#000" />
-          </pattern>
-        </defs>
-        <g transform="translate(3,3)" fill="#000">
-          <path d="M18 9 H46 V24 C46 33 40 38 32 38 C24 38 18 33 18 24 Z" />
-          <rect x="16" y="49" width="32" height="8" />
+        <g stroke="#000" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round">
+          <path d="M16 15 H10 C10 23 13 27 18 28" fill="none" />
+          <path d="M48 15 H54 C54 23 51 27 46 28" fill="none" />
+          <path d="M16 10 H48 V22 C48 32 41 38 32 38 C23 38 16 32 16 22 Z" fill="#e11d48" />
+          <rect x="29" y="38" width="6" height="8" fill="#000" />
+          <rect x="20" y="46" width="24" height="8" rx="2" fill="#000" />
         </g>
-        <g stroke="#000" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round">
-          <path d="M18 14 H11 C11 23 14 27 19 28" fill="none" strokeWidth="3.5" />
-          <path d="M46 14 H53 C53 23 50 27 45 28" fill="none" strokeWidth="3.5" />
-          <path d="M18 9 H46 V24 C46 33 40 38 32 38 C24 38 18 33 18 24 Z" fill="#e11d48" />
-          <polygon points="32.0,16.5 33.6,20.7 38.2,21.0 34.7,23.9 35.8,28.3 32.0,25.8 28.2,28.3 29.3,23.9 25.8,21.0 30.4,20.7" fill="#fff" strokeWidth="1.5" />
-          <rect x="29" y="38" width="6" height="6" fill="#1f2937" />
-          <rect x="21" y="44" width="22" height="5" fill="#1f2937" />
-          <rect x="16" y="49" width="32" height="8" fill="url(#trophy-check)" />
-        </g>
+        <polygon points="32,15 34.1,20.4 39.8,20.6 35.3,24.1 36.9,29.6 32,26.4 27.1,29.6 28.7,24.1 24.2,20.6 29.9,20.4" fill="#fff" />
       </svg>
     );
 
@@ -261,7 +264,26 @@
       </div>
     );
 
-    const bigBtn = (color = 'bg-[#22c55e]', enabled = true) => `w-full ${enabled ? `${color} text-white retro-shadow active:translate-y-[6px] active:shadow-none` : 'bg-gray-400 text-gray-700'} border-4 border-black rounded-full py-4 font-black text-2xl flex items-center justify-center gap-2 transition-all`;
+    /* ================= 按鈕 UI 規範 v1（與主控端相同；新增按鈕一律從這裡選樣式）=================
+         前進綠 #22C55E ＝ 主要動作（開始、加入、確認），滿版膠囊，每個畫面最多 1 個 → bigBtn('primary')
+         中性白          ＝ 一般操作，滿版膠囊                                       → bigBtn('neutral')
+         警示紅 #E11D48 ＝ 危險動作（白底紅字，按兩次）                             → bigBtn('danger')
+         選取黃 #FACC15 ＝ 已選取的項目（例如調色盤目前顏色的外圈）
+         停用灰 #9CA3AF ＝ 條件未達成
+         文字連結（底線、無外框）＝ 次要的離開類動作：淺色底用黑字、深色底用白字
+       共通：黑色 4px 外框＋黑色實心陰影；按下時往下沉、陰影消失。 */
+    // 手機彈出卡片（加入房間、輸入暱稱共用，確保高度與排版一致）
+    const CARD = 'bg-[#facc15] border-4 border-black retro-shadow p-5 w-full max-w-sm';
+    const CARD_TITLE = 'font-black text-black text-2xl mb-1';
+    const CARD_DESC = 'font-bold text-black text-sm leading-5 mb-3 min-h-[40px]';
+    const CARD_INPUT = 'w-full h-[88px] px-3 text-center font-black bg-white border-4 placeholder:text-gray-300 focus:outline-none';
+    const CARD_HINT = 'flex justify-between text-xs font-bold text-black/70 mt-1 mb-3';
+    const BTN_TONE = {
+      primary: 'bg-[#22c55e] text-white',
+      neutral: 'bg-white text-black',
+      danger: 'bg-white text-[#e11d48]',
+    };
+    const bigBtn = (tone = 'primary', enabled = true) => `w-full ${enabled ? `${BTN_TONE[tone] || BTN_TONE.primary} retro-shadow active:translate-y-[6px] active:shadow-none` : 'bg-gray-400 text-gray-700'} border-4 border-black rounded-full py-4 font-black text-2xl flex items-center justify-center gap-2 transition-all`;
 
     // ================= 主程式 =================
     const MobileApp = () => {
@@ -274,6 +296,11 @@
       const [myTable, setMyTable] = useState(null);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
+      const [pendingTable, setPendingTable] = useState(null);
+      const [shake, setShake] = useState(0);
+      const codeInputRef = useRef(null);   // 正在輸入暱稱、準備加入的桌號
+      const [nameDraft, setNameDraft] = useState(loadName);
+      const [nameError, setNameError] = useState('');
       // 比賽用
       const [now, setNow] = useState(Date.now());
       const [myScore, setMyScore] = useState(0);
@@ -364,7 +391,7 @@
         }
       }, [room, view, myKey, uid]);
 
-      // 6. 組長接手：原組長離開或離線時，下一位在線玩家自動成為組長
+      // 6. 隊長接手：原隊長離開或離線時，下一位在線玩家自動成為隊長
       useEffect(() => {
         if (!room || status !== 'lobby' || !myKey || !uid) return;
         const current = room.teams?.[myKey]?.leaderUid || null;
@@ -458,16 +485,24 @@
       };
 
       // 驗證房間是否存在、是否開放加入
+      // 房號錯誤時：清空輸入、輸入框抖一下並自動對焦，方便直接重新輸入
+      const rejectCode = (msg) => {
+        setError(msg);
+        setCode('');
+        setShake(k => k + 1);
+        setTimeout(() => codeInputRef.current?.focus(), 0);
+      };
+
       const joinRoom = async () => {
         const c = code.trim();
-        if (!/^\d{6}$/.test(c)) { setError('請輸入 6 位數房間編號'); return; }
+        if (!/^\d{6}$/.test(c)) { rejectCode('請輸入 6 位數房間編號'); return; }
         if (!user) { setError('連線中，請稍候再試'); return; }
         setBusy(true); setError('');
         try {
           const m = (await get(ref(db, `rooms/${c}/meta`))).val();
-          if (!m) setError('查無此房間，請確認編號');
-          else if (m.status === 'closed') setError('此房間已關閉');
-          else if (m.status !== 'lobby') setError('比賽已經開始，目前無法加入');
+          if (!m) rejectCode(`查無房間 ${c}，請重新輸入`);
+          else if (m.status === 'closed') rejectCode(`房間 ${c} 已關閉，請重新輸入`);
+          else if (m.status !== 'lobby') rejectCode(`房間 ${c} 比賽已開始，無法加入`);
           else { setRoomCode(c); saveSession({ room: c }); setView('pick'); }
         } catch (err) {
           console.error(err);
@@ -478,9 +513,11 @@
       };
 
       // 加入車隊（同時離開其他車隊，確保一人只在一組）
-      const joinTeam = async (t) => {
+      const joinTeam = async (t, rawName) => {
         if (!room || status !== 'lobby' || !uid || busy) return;
-        setBusy(true); setError('');
+        const name = cleanName(rawName);
+        if (!name) { setNameError('請輸入暱稱'); return; }
+        setBusy(true); setError(''); setNameError('');
         try {
           const key = teamKey(t);
           const updates = {};
@@ -488,9 +525,11 @@
             if (k !== key && members?.[uid]) updates[`players/${k}/${uid}`] = null;
           });
           if (!room.players?.[key]?.[uid]) {
-            updates[`players/${key}/${uid}`] = { joinedAt: serverTimestamp(), online: true, ready: false };
+            updates[`players/${key}/${uid}`] = { joinedAt: serverTimestamp(), online: true, ready: false, name };
           }
           if (Object.keys(updates).length) await update(ref(db, roomPath), updates);
+          saveName(name);
+          setPendingTable(null);
           setMyTable(t);
           saveSession({ room: roomCode, table: t });
           setView('team');
@@ -514,7 +553,7 @@
         setView('pick');
       };
 
-      // 組長更換賽車顏色
+      // 隊長更換賽車顏色
       const changeColor = (colorId) => {
         if (!myKey || status !== 'lobby') return;
         set(ref(db, `${roomPath}/teams/${myKey}/color`), colorId).catch(err => { console.error(err); setError(`換色失敗：${errText(err)}`); });
@@ -536,7 +575,7 @@
       const leaderUid = myKey ? resolveLeader(room?.players?.[myKey], myTeam?.leaderUid || null) : null;
       const isLeader = !!uid && leaderUid === uid;
       const takenColors = new Set(tables.filter(t => t !== myTable).map(t => room?.teams?.[teamKey(t)]?.color));
-      const myColor = CAR_COLORS.find(c => c.id === myTeam?.color) || CAR_COLORS[1];
+      const myColor = CAR_COLORS.find(c => c.id === myTeam?.color) || CAR_COLORS[8];
 
       return (
         <div className="w-full h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
@@ -558,6 +597,7 @@
             <div className="z-30 bg-[#e11d48] text-white font-black text-center text-sm py-1 border-b-4 border-black">連線中斷，正在重新連線...</div>
           )}
 
+          <div className="flex-1 relative flex flex-col min-h-0">
           {inRace ? (
             <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
               {/* 狀態列：組別、剩餘時間、即時分數 */}
@@ -659,7 +699,7 @@
                 </div>
 
                 <div className="w-full max-w-[220px] mx-auto">
-                  <button onClick={() => { setError(''); setView('join'); }} className={`${bigBtn('bg-[#e11d48]')} !py-3 !text-xl`}>
+                  <button onClick={() => { setError(''); setView('join'); }} className={`${bigBtn('primary')} !py-3 !text-xl`}>
                     ▶ 開始遊戲
                   </button>
                 </div>
@@ -678,21 +718,23 @@
             {/* ===== 輸入房間編號 ===== */}
             {view === 'join' && (
               <div className="flex-1 flex items-center justify-center p-6">
-                <div className="bg-[#f472b6] border-4 border-black retro-shadow p-6 text-center w-full max-w-sm">
-                  <h2 className="text-3xl font-black text-white mb-6 retro-text-shadow tracking-widest">加入賽事房間</h2>
-                  <div className="bg-[#38bdf8] border-4 border-black p-4 mb-4 retro-shadow-sm">
-                    <label className="block text-black font-black mb-3 text-lg">請輸入 6 位數房間編號</label>
-                    <input type="text" inputMode="numeric" autoComplete="off" pattern="\d*" maxLength={6} value={code}
-                      onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') joinRoom(); }}
-                      placeholder="000000"
-                      className="w-full text-center text-5xl font-black font-mono tracking-[0.15em] p-2 border-4 border-black bg-white placeholder:text-gray-300 focus:outline-none focus:bg-[#facc15] transition-colors" />
+                {/* 與「加入車隊・輸入暱稱」視窗同一套樣式 */}
+                <div data-testid="join-card" className={CARD}>
+                  <div className={CARD_TITLE}>加入賽事房間</div>
+                  <p className={CARD_DESC}>輸入大螢幕上的 6 位數房間編號，或直接掃描 QR Code。</p>
+                  <input key={`code-${shake}`} ref={codeInputRef} data-testid="code-input" type="text" inputMode="numeric" autoComplete="off" pattern="\d*" maxLength={6} value={code} autoFocus
+                    onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') joinRoom(); }}
+                    placeholder="000000"
+                    className={`${CARD_INPUT} font-mono tracking-[0.2em] ${shake && error ? 'border-[#e11d48] shake' : 'border-black'}`} style={{ fontSize: 40 }} />
+                  <div className={CARD_HINT}>
+                    <span>{error ? <span data-testid="join-error" className="text-[#e11d48]">{error}</span> : '房間編號由大螢幕產生'}</span>
+                    <span>{code.length}/6</span>
                   </div>
-                  {error && <p data-testid="join-error" className="text-black font-black mb-4 bg-white border-2 border-black inline-block px-3 py-1">{error}</p>}
-                  <button onClick={joinRoom} disabled={busy} className={bigBtn('bg-[#22c55e]', !busy)}>
+                  <button onClick={joinRoom} disabled={busy} className={bigBtn('primary', !busy)}>
                     {busy ? '驗證中...' : '加入房間'}
                   </button>
-                  <button onClick={goHome} className="mt-4 font-black text-black underline">返回首頁</button>
+                  <button onClick={goHome} className="w-full mt-3 font-black text-black underline">返回首頁</button>
                 </div>
               </div>
             )}
@@ -716,7 +758,7 @@
                     {tables.map(t => {
                       const st = teamStatus(room, t);
                       return (
-                        <button key={t} data-card={t} onClick={() => joinTeam(t)} disabled={busy || status !== 'lobby'}
+                        <button key={t} data-card={t} onClick={() => { setNameError(''); setNameDraft(loadName()); setPendingTable(t); }} disabled={busy || status !== 'lobby'}
                           className="bg-white border-4 border-black retro-shadow-sm p-3 flex flex-col items-center active:translate-y-[3px] active:shadow-none transition-all">
                           <div className="w-full flex justify-between items-center mb-1">
                             <span className="font-black text-xl">第 {pad2(t)} 桌</span>
@@ -734,16 +776,17 @@
               </div>
             )}
 
-            {/* ===== 我的車隊：組長選色／組員查看 ===== */}
+            {/* ===== 我的車隊：隊長選色／隊員查看 ===== */}
             {view === 'team' && room && myTable && status === 'lobby' && (
               <div className="flex-1 flex flex-col p-4 gap-4">
                 <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-center">
                   <div>
                     <div className="font-black text-xs">ROOM {roomCode}</div>
                     <div data-testid="my-table" className="font-black text-2xl">第 {pad2(myTable)} 桌</div>
+                    <div className="font-bold text-sm truncate max-w-[12em]">{room.players?.[myKey]?.[uid]?.name || ''}</div>
                   </div>
                   <span data-testid="my-role" className={`border-4 border-black px-3 py-1 font-black ${isLeader ? 'bg-[#e11d48] text-white' : 'bg-white text-black'}`}>
-                    {isLeader ? '組長' : '組員'}
+                    {isLeader ? '隊長' : '隊員'}
                   </span>
                 </div>
 
@@ -753,25 +796,25 @@
                   <div data-testid="my-color" className="mt-2 bg-white border-2 border-black px-3 py-0.5 font-black">{myColor.name}</div>
                 </div>
 
-                {/* 顏色：只有組長可以改 */}
+                {/* 顏色：只有隊長可以改 */}
                 <div className="bg-white border-4 border-black retro-shadow-sm p-3">
-                  <div className="font-black mb-2">{isLeader ? '選擇賽車顏色' : '賽車顏色由組長決定'}</div>
+                  <div className="font-black mb-2">{isLeader ? '選擇賽車顏色（隊長專屬）' : '賽車顏色由隊長決定'}</div>
                   {isLeader ? (
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-8 gap-1.5">
                       {CAR_COLORS.map(c => {
                         const taken = takenColors.has(c.id);
                         const on = myTeam?.color === c.id;
                         return (
                           <button key={c.id} data-color={c.id} onClick={() => changeColor(c.id)} disabled={taken || on || status !== 'lobby'}
-                            className={`relative aspect-square rounded-full border-4 ${on ? 'border-black ring-4 ring-[#facc15]' : 'border-black'} ${taken ? 'opacity-25' : ''}`}
+                            className={`relative aspect-square rounded-full border-[3px] border-black ${on ? 'ring-[3px] ring-[#facc15] ring-offset-1 ring-offset-black' : ''} ${taken ? 'opacity-25' : ''}`}
                             style={{ background: c.hex }} title={taken ? `${c.name}（其他車隊使用中）` : c.name}>
-                            {on && <span className="absolute inset-0 flex items-center justify-center text-white font-black text-lg drop-shadow-[1px_1px_0_#000]">✓</span>}
+                            {on && <span className="absolute inset-0 flex items-center justify-center text-white font-black text-sm drop-shadow-[1px_1px_0_#000]">✓</span>}
                           </button>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="text-sm font-bold text-gray-600">組長換色後會即時同步到你的手機與大螢幕</p>
+                    <p className="text-sm font-bold text-gray-600">隊長換色後會即時同步到你的手機與大螢幕</p>
                   )}
                   {isLeader && <p className="mt-2 text-xs font-bold text-gray-500">淡色為其他車隊已使用的顏色</p>}
                 </div>
@@ -783,9 +826,9 @@
                     {myMembers.map((m, i) => (
                       <li key={m.id} data-member={m.id} className={`flex items-center gap-2 font-bold ${m.online ? '' : 'text-gray-400'}`}>
                         <span className={`w-2.5 h-2.5 rounded-full ${m.online ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-                        <span>車手 {i + 1}{m.id === uid ? '（你）' : ''}</span>
+                        <span data-member-name className="truncate max-w-[9em]">{m.name || `車手 ${i + 1}`}</span>{m.id === uid && <span className="text-xs text-gray-500 shrink-0">（你）</span>}
                         <span className="ml-auto flex gap-1">
-                          {m.id === leaderUid && <span className="text-xs bg-[#e11d48] text-white px-2 py-0.5 border-2 border-black">組長</span>}
+                          {m.id === leaderUid && <span className="text-xs bg-[#e11d48] text-white px-2 py-0.5 border-2 border-black">隊長</span>}
                           {m.online && (m.ready
                             ? <span className="text-xs bg-[#22c55e] text-black px-2 py-0.5 border-2 border-black">已準備</span>
                             : <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 border-2 border-black">未準備</span>)}
@@ -801,7 +844,7 @@
                   const meReady = !!room.players?.[myKey]?.[uid]?.ready;
                   return (
                     <button data-testid="ready-btn" onClick={toggleReady}
-                      className={`w-full border-4 border-black rounded-full py-3 font-black text-xl retro-shadow active:translate-y-[6px] active:shadow-none transition-all ${meReady ? 'bg-white text-black' : 'bg-[#22c55e] text-white'}`}>
+                      className={`${bigBtn(meReady ? 'neutral' : 'primary')} !py-3 !text-xl`}>
                       {meReady ? '已準備完成（點此取消）' : '確認準備完成'}
                     </button>
                   );
@@ -842,6 +885,31 @@
             })()}
           </FitArea>
           )}
+          {/* 加入車隊：輸入暱稱 */}
+          {pendingTable && view === 'pick' && (
+            <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
+              <div data-testid="name-dialog" className={CARD}>
+                <div className={CARD_TITLE}>加入第 {pad2(pendingTable)} 桌</div>
+                <p className={CARD_DESC}>
+                  {Object.values(room?.players?.[teamKey(pendingTable)] || {}).some(p => p?.online)
+                    ? '輸入你的暱稱，加入車隊一起衝刺！'
+                    : '你是第一位加入的車手，將成為隊長，可以決定賽車顏色！'}
+                </p>
+                <input data-testid="name-input" type="text" autoFocus maxLength={NAME_MAX} value={nameDraft} placeholder="請輸入暱稱"
+                  onChange={(e) => { setNameDraft(e.target.value); setNameError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') joinTeam(pendingTable, nameDraft); }}
+                  className={`${CARD_INPUT} border-black`} style={{ fontSize: 28 }} />
+                <div className={CARD_HINT}>
+                  <span>{nameError || error ? <span className="text-[#e11d48]">{nameError || error}</span> : '大螢幕成績紀錄會顯示暱稱'}</span>
+                  <span>{cleanName(nameDraft).length}/{NAME_MAX}</span>
+                </div>
+                <button data-testid="name-confirm" onClick={() => joinTeam(pendingTable, nameDraft)} disabled={busy}
+                  className={bigBtn('primary', !busy)}>{busy ? '加入中...' : '確認加入'}</button>
+                <button onClick={() => setPendingTable(null)} className="w-full mt-3 font-black text-black underline">取消</button>
+              </div>
+            </div>
+          )}
+          </div>
         </div>
       );
     };
