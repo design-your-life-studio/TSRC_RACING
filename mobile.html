@@ -74,17 +74,35 @@
       .hm-live .hm-car svg { animation: hmIdle .14s steps(2) infinite alternate; }
       .hm-live .hm-speed { display: block; }
       .hm-live .hm-speed i { animation: hmStreak .6s linear infinite; }
-      .hm-bg { animation: hmBg 2.4s linear infinite; }
       .hm-live .track-dash { animation: hmDash .5s linear infinite; }
       .hm-live .hm-breath { animation: hmBreath 1.6s ease-in-out infinite; }
       /* 3. 起跑燈循環：綠燈出發 → 從另一側開回來 */
       .hm-car.race-out { animation: hmLaunch .75s cubic-bezier(.6,0,.9,.4) forwards !important; }
       .hm-car.race-in { animation: hmDriveIn 1.3s cubic-bezier(.15,.85,.25,1) both !important; }
       /* 4. 按下「開始遊戲」：賽車衝出畫面 */
-      .hm-launch .hm-car { animation: hmLaunch .7s cubic-bezier(.6,0,.9,.4) forwards !important; }
+      .hm-launch .hm-car { animation: hmLaunch .55s cubic-bezier(.6,0,.9,.4) forwards !important; }
       .hm-launch .hm-speed i, .hm-car.race-out .hm-speed i { animation-duration: .25s; }
-      .hm-launch .hm-dim { opacity: .25; transition: opacity .4s .2s; }
+      /* 離場：文字往左滑出、其他元素淡出，下一頁緊接著進場 */
+      .hm-launch .hm-exit { opacity: 0; transform: translateX(-5vw); transition: opacity .36s ease-in, transform .36s ease-in; }
+      .hm-launch .hm-fadeout { opacity: 0; transition: opacity .3s ease-in; }
+      /* 換頁進場 */
+      .pg-enter > * { animation: pgRise .5s cubic-bezier(.2,.8,.2,1) backwards; }
+      .pg-enter > :nth-child(1) { animation-name: pgDrop; }
+      .pg-enter > :nth-child(2) { animation-delay: .08s; }
+      .pg-enter > :nth-child(3) { animation: hmPop .45s cubic-bezier(.2,1.6,.4,1) .3s backwards; }
+      .pg-enter [data-table] { animation: pgCell .28s ease-out backwards; animation-delay: calc(.2s + var(--c) * 22ms); }
+      .pg-rise { animation: pgRise .45s cubic-bezier(.2,.8,.2,1) backwards; }
+      /* 背景格紋：每一頁都持續往左流動 */
+      .bg-flow { animation: bgFlow 2s linear infinite; will-change: transform; }
     }
+    @keyframes pgRise { from { opacity: 0; transform: translateY(40px) scale(.97); } }
+    @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
+    @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
+    @keyframes bgFlow { to { transform: translateX(-88px); } }
+    /* 背景格紋圖層：比畫面寬一格，往左移一格後無縫重複 */
+    .bg-flow { position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% + 88px); pointer-events: none;
+      background-image: conic-gradient(rgba(255,255,255,0.06) 25%, transparent 0 50%, rgba(255,255,255,0.06) 0 75%, transparent 0);
+      background-size: 88px 88px; }
     @keyframes hmFade { from { opacity: 0; } }
     @keyframes hmBar { from { transform: scaleX(0); } }
     @keyframes hmSlide { from { opacity: 0; transform: translateX(-40px); } }
@@ -94,7 +112,6 @@
     @keyframes hmSpin { to { transform: rotate(-360deg); } }
     @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
     @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
-    @keyframes hmBg { from { background-position: 0 0; } to { background-position: -88px 0; } }
     @keyframes hmDash { to { background-position: -18px 0; } }
     @keyframes hmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
     @keyframes hmLaunch { 0% { transform: translateX(0); } 15% { transform: translateX(-4%); } 100% { transform: translateX(260%); } }
@@ -312,7 +329,18 @@
 
     // ===== 首頁動態效果 =====
     const prefersReducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const LAUNCH_MS = 700;   // 按下「開始遊戲」後，賽車衝出畫面的時間
+    const LAUNCH_MS = 520;   // 按下「開始遊戲」後，賽車衝出、首頁離場的時間（之後下一頁接著進場）
+    // 背景格紋流動：所有圖層用同一個節奏（依目前時間對齊），疊在一起或換頁時都不會錯位
+    const BG_FLOW_MS = 2000;
+    const BgFlow = ({ className = '', style }) => {
+      const [delay] = useState(() => -(performance.now() % BG_FLOW_MS));
+      // 外層裁切：格紋圖層比畫面寬一格，包起來避免父層出現可捲動的多餘寬度（畫面被推歪）
+      return (
+        <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none" style={style}>
+          <div className={`bg-flow ${className}`} style={{ animationDelay: `${delay}ms` }}></div>
+        </div>
+      );
+    };
     // 標題逐字彈入：每個字一個 span，--i 決定出場順序
     const IntroChars = ({ text, from = 0 }) => [...text].map((c, i) => (
       <span key={i} className="hm-ch inline-block" style={{ '--i': from + i }}>{c}</span>
@@ -676,7 +704,8 @@
 
       return (
         <div className="w-full h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
-          <div className={`absolute inset-0 bg-grid z-0 pointer-events-none ${view === 'home' ? 'hm-bg' : ''}`}></div>
+          {/* 背景格紋：每一頁持續流動 */}
+          <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden"><BgFlow /></div>
 
           {/* 頂部導覽列 */}
           <div className="w-full bg-white border-b-4 border-black p-3 flex justify-between items-center z-20 shrink-0 relative">
@@ -771,42 +800,42 @@
 
             {/* ===== 手機首頁（海報式排版）===== */}
             {view === 'home' && (
-              <div className={`flex-1 flex flex-col px-6 pt-5 pb-6 text-white relative hm-live hm-intro ${launching ? 'hm-launch' : ''}`}>
+              <div className={`flex-1 flex flex-col px-6 pt-5 pb-6 text-white relative hm-live ${launching ? 'hm-launch' : 'hm-intro'}`}>
                 <div className="flex justify-start items-center font-hud font-bold text-[11px] tracking-[0.25em]">
-                  <span className="text-white/60 hm-season">SEASON 2027</span>
+                  <span className="text-white/60 hm-season hm-fadeout">SEASON 2027</span>
                 </div>
 
                 <div className="flex-1 flex flex-col justify-center">
-                <div className="relative z-[2]">
+                <div className="hm-exit relative z-[2]">
                   {/* 黃線＋副標：整體寬度與「方程式」相同 */}
-                  <FitWidthText targetRef={formulaRef} className="mb-4 hm-dim">
+                  <FitWidthText targetRef={formulaRef} className="mb-4">
                     <span className="inline-flex items-center gap-[0.6em] text-white">
                       <span className="hm-bar inline-block h-[0.12em] min-h-[3px] w-[2.2em] bg-[#facc15]"></span>
                       <span className="hm-tagtxt inline-block font-medium tracking-[0.18em] mr-[-0.18em]">解鎖 2027 冠軍賽道</span>
                     </span>
                   </FitWidthText>
-                  <h1 className="text-[78px] hm-dim"><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
-                  <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-3 hm-eng hm-dim">GREEN ENERGY FORMULA</FitWidthText>
+                  <h1 className="text-[78px]"><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
+                  <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-3 hm-eng">GREEN ENERGY FORMULA</FitWidthText>
                 </div>
 
                 <div className="relative mt-8 mb-8">
-                  <div className="outline-num hm-num absolute right-[-8px] top-[-34px] text-[120px] select-none pointer-events-none">2027</div>
+                  <div className="outline-num hm-num hm-fadeout absolute right-[-8px] top-[-34px] text-[120px] select-none pointer-events-none">2027</div>
                   <div className="hm-car relative w-full max-w-[320px] aspect-[120/45]">
                     <div className="hm-speed"><i style={{ top: '8%', width: '90%' }}></i><i style={{ top: '38%', width: '70%', animationDelay: '.2s' }}></i><i style={{ top: '66%', width: '100%', animationDelay: '.1s' }}></i><i style={{ top: '92%', width: '60%', animationDelay: '.35s' }}></i></div>
                     <F1CarSVG color="#e11d48" />
                   </div>
-                  <div className="hm-track hm-dim mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
+                  <div className="hm-track hm-fadeout mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
                     <span>START</span><div className="flex-1 track-dash"></div><span>FINISH</span>
                   </div>
                 </div>
 
-                <div className="hm-pop w-full max-w-[220px] mx-auto">
+                <div className="hm-fadeout"><div className="hm-pop w-full max-w-[220px] mx-auto">
                   <div className="hm-breath">
                     <button onClick={startGame} className={`${bigBtn('primary')} !py-3 !text-xl`}>
                       ▶ 開始遊戲
                     </button>
                   </div>
-                </div>
+                </div></div>
 
                 </div>
               </div>
@@ -816,7 +845,7 @@
             {view === 'join' && (
               <div className="flex-1 flex items-center justify-center p-6">
                 {/* 與「加入車隊・輸入暱稱」視窗同一套樣式 */}
-                <div data-testid="join-card" className={CARD}>
+                <div data-testid="join-card" className={`${CARD} pg-rise`}>
                   <div className={CARD_TITLE}>加入賽事房間</div>
                   <p className={CARD_DESC}>輸入大螢幕上的 6 位數房間編號，或直接掃描 QR Code。</p>
                   <input key={`code-${shake}`} ref={codeInputRef} data-testid="code-input" type="text" inputMode="numeric" autoComplete="off" pattern="\d*" maxLength={6} value={code} autoFocus
