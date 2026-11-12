@@ -81,17 +81,35 @@
       .hm-live .hm-car svg { animation: hmIdle .14s steps(2) infinite alternate; }
       .hm-live .hm-speed { display: block; }
       .hm-live .hm-speed i { animation: hmStreak .6s linear infinite; }
-      .hm-bg { animation: hmBg 2.4s linear infinite; }
       .hm-live .track-dash { animation: hmDash .5s linear infinite; }
       .hm-live .hm-breath { animation: hmBreath 1.6s ease-in-out infinite; }
       /* 3. 起跑燈循環：綠燈出發 → 從另一側開回來 */
       .hm-car.race-out { animation: hmLaunch .75s cubic-bezier(.6,0,.9,.4) forwards !important; }
       .hm-car.race-in { animation: hmDriveIn 1.3s cubic-bezier(.15,.85,.25,1) both !important; }
       /* 4. 按下「開始遊戲」：賽車衝出畫面 */
-      .hm-launch .hm-car { animation: hmLaunch .7s cubic-bezier(.6,0,.9,.4) forwards !important; }
+      .hm-launch .hm-car { animation: hmLaunch .55s cubic-bezier(.6,0,.9,.4) forwards !important; }
       .hm-launch .hm-speed i, .hm-car.race-out .hm-speed i { animation-duration: .25s; }
-      .hm-launch .hm-dim { opacity: .25; transition: opacity .4s .2s; }
+      /* 離場：文字往左滑出、其他元素淡出，下一頁緊接著進場 */
+      .hm-launch .hm-exit { opacity: 0; transform: translateX(-5vw); transition: opacity .36s ease-in, transform .36s ease-in; }
+      .hm-launch .hm-fadeout { opacity: 0; transition: opacity .3s ease-in; }
+      /* 換頁進場 */
+      .pg-enter > * { animation: pgRise .5s cubic-bezier(.2,.8,.2,1) backwards; }
+      .pg-enter > :nth-child(1) { animation-name: pgDrop; }
+      .pg-enter > :nth-child(2) { animation-delay: .08s; }
+      .pg-enter > :nth-child(3) { animation: hmPop .45s cubic-bezier(.2,1.6,.4,1) .3s backwards; }
+      .pg-enter [data-table] { animation: pgCell .28s ease-out backwards; animation-delay: calc(.2s + var(--c) * 22ms); }
+      .pg-rise { animation: pgRise .45s cubic-bezier(.2,.8,.2,1) backwards; }
+      /* 背景格紋：每一頁都持續往左流動 */
+      .bg-flow { animation: bgFlow 2.4s linear infinite; will-change: transform; }
     }
+    @keyframes pgRise { from { opacity: 0; transform: translateY(40px) scale(.97); } }
+    @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
+    @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
+    @keyframes bgFlow { to { transform: translateX(-112px); } }
+    /* 背景格紋圖層：比畫面寬一格，往左移一格後無縫重複 */
+    .bg-flow { position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% + 112px); pointer-events: none;
+      background-image: conic-gradient(rgba(255,255,255,0.06) 25%, transparent 0 50%, rgba(255,255,255,0.06) 0 75%, transparent 0);
+      background-size: 112px 112px; }
     @keyframes hmFade { from { opacity: 0; } }
     @keyframes hmBar { from { transform: scaleX(0); } }
     @keyframes hmSlide { from { opacity: 0; transform: translateX(-40px); } }
@@ -101,7 +119,6 @@
     @keyframes hmSpin { to { transform: rotate(-360deg); } }
     @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
     @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
-    @keyframes hmBg { from { background-position: 0 0; } to { background-position: -112px 0; } }
     @keyframes hmDash { to { background-position: -28px 0; } }
     @keyframes hmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
     @keyframes hmLaunch { 0% { transform: translateX(0); } 15% { transform: translateX(-4%); } 100% { transform: translateX(260%); } }
@@ -349,7 +366,7 @@
     const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
 
     // 畫面自動縮放：內容依固定設計寬度排版，再等比縮放到剛好放進視窗（電腦端永遠不需要捲動）
-    const FitStage = ({ width, children }) => {
+    const FitStage = ({ width, className = '', children }) => {
       const outer = useRef(null);
       const inner = useRef(null);
       const [scale, setScale] = useState(1);
@@ -368,7 +385,7 @@
       }, []);
       return (
         <div ref={outer} className="absolute inset-0 flex items-center justify-center overflow-hidden">
-          <div ref={inner} className="flex flex-col items-center shrink-0" style={{ width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+          <div ref={inner} className={`flex flex-col items-center shrink-0 ${className}`} style={{ width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
             {children}
           </div>
         </div>
@@ -379,7 +396,18 @@
 
     // ===== 首頁動態效果 =====
     const prefersReducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const LAUNCH_MS = 700;   // 按下「開始遊戲」後，賽車衝出畫面的時間
+    const LAUNCH_MS = 520;   // 按下「開始遊戲」後，賽車衝出、首頁離場的時間（之後下一頁接著進場）
+    // 背景格紋流動：所有圖層用同一個節奏（依目前時間對齊），疊在一起或換頁時都不會錯位
+    const BG_FLOW_MS = 2400;
+    const BgFlow = ({ className = '', style }) => {
+      const [delay] = useState(() => -(performance.now() % BG_FLOW_MS));
+      // 外層裁切：格紋圖層比畫面寬一格，包起來避免父層出現可捲動的多餘寬度（畫面被推歪）
+      return (
+        <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none" style={style}>
+          <div className={`bg-flow ${className}`} style={{ animationDelay: `${delay}ms` }}></div>
+        </div>
+      );
+    };
     // 標題逐字彈入：每個字一個 span，--i 決定出場順序
     const IntroChars = ({ text, from = 0 }) => [...text].map((c, i) => (
       <span key={i} className="hm-ch inline-block" style={{ '--i': from + i }}>{c}</span>
@@ -410,13 +438,15 @@
       return <div ref={ref} className={`inline-block whitespace-nowrap leading-none ${className}`} style={{ fontSize: size ? `${size}px` : '1em', visibility: size ? 'visible' : 'hidden' }}>{children}</div>;
     };
 
+    // 選桌／房間畫面上方標題：副標貼近標題、標題與下方視窗稍微靠近（間距方案 03）
     const TitleBlock = ({ big }) => (
-      <div className="text-center mb-8 z-10 flex flex-col items-center">
-        <div className={`flex items-center gap-4 mb-4 text-white ${big ? 'text-3xl' : 'text-2xl'}`}>
+      <div className="text-center mb-[22px] z-10 flex flex-col items-center">
+        <div className={`flex items-center gap-4 mb-[6px] text-white ${big ? 'text-3xl' : 'text-2xl'}`}>
           <span className="inline-block h-[3px] w-[3em] bg-[#facc15]"></span>
           <span className="font-medium tracking-[0.2em]">解鎖 2027 冠軍賽道</span>
         </div>
-        <h1 className={big ? 'text-[128px]' : 'text-[72px]'}><LogoText>綠能方程式</LogoText></h1>
+        {/* 標題字本身上方有 0.085em 留白，這裡往上收 0.125em，實際為 -0.04em */}
+        <h1 className={big ? 'text-[128px]' : 'text-[72px]'} style={{ marginTop: '-0.125em' }}><LogoText>綠能方程式</LogoText></h1>
       </div>
     );
 
@@ -885,7 +915,9 @@
       );
 
       return (
-        <div className={`h-screen w-screen bg-[#1e3a8a] bg-grid flex flex-col items-center justify-center relative overflow-hidden ${view === 'home' ? 'hm-bg' : ''}`}>
+        <div className="h-screen w-screen bg-[#1e3a8a] flex flex-col items-center justify-center relative overflow-hidden isolate">
+          {/* 背景格紋：每一頁持續流動 */}
+          <BgFlow style={{ zIndex: -1 }} />
           {error && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-[#e11d48] text-white font-black px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000]">{error}</div>
           )}
@@ -894,8 +926,9 @@
 
           {/* 開場畫面 */}
           {splash !== 'off' && (
-            <div data-testid="splash" className="absolute inset-0 z-[80] bg-[#1e3a8a] bg-grid flex items-center justify-center"
+            <div data-testid="splash" className="absolute inset-0 z-[80] bg-[#1e3a8a] flex items-center justify-center isolate"
               style={{ opacity: splash === 'fade' ? 0 : 1, transition: `opacity ${SPLASH_FADE_MS}ms ease`, pointerEvents: splash === 'fade' ? 'none' : 'auto' }}>
+              <BgFlow style={{ zIndex: -1 }} />
               <div className="flex flex-col items-center" style={{ fontSize: 'min(1vw, 1.8vh)' }}>
                 <div className="flex items-center gap-4 mb-[2.5vh] text-white" style={{ fontSize: 'clamp(18px, min(1.9vw, 3.4vh), 40px)' }}>
                   <span className="inline-block h-[3px] w-[3em] bg-[#facc15]"></span>
@@ -908,26 +941,26 @@
 
           {/* ===== 遊戲首頁（海報式排版）===== */}
           {view === 'home' && (
-            <div className={`absolute inset-0 flex flex-col z-10 text-white hm-live ${homeIntro ? 'hm-intro' : ''} ${launching ? 'hm-launch' : ''}`}>
+            <div className={`absolute inset-0 flex flex-col z-10 text-white hm-live ${homeIntro && !launching ? 'hm-intro' : ''} ${launching ? 'hm-launch' : ''}`}>
               {/* 上方資訊列 */}
               <div className="flex items-center justify-between px-[4vw] pt-[4vh] font-hud font-bold tracking-[0.3em]" style={{ fontSize: 'clamp(12px, min(1vw, 1.8vh), 20px)' }}>
-                <div className="text-white/60 hm-season">SEASON 2027</div>
+                <div className="text-white/60 hm-season hm-fadeout">SEASON 2027</div>
                 <div className="tracking-normal">{serverBadge}</div>
               </div>
 
               {/* 主視覺 */}
               <div className="flex-1 grid grid-cols-[1.1fr_1fr] items-center gap-[3vw] px-[6vw]">
                 {/* 左欄疊在賽車上層：賽車進場時從標題後方穿過 */}
-                <div className="flex flex-col items-start relative z-[2]">
+                <div className="hm-exit flex flex-col items-start relative z-[2]">
                   {/* 黃線＋副標：整體寬度與「方程式」相同 */}
-                  <FitWidthText targetRef={formulaRef} className="mb-[2.5vh] hm-dim">
+                  <FitWidthText targetRef={formulaRef} className="mb-[2.5vh]">
                     <span className="inline-flex items-center gap-[0.6em] text-white">
                       <span className="hm-bar inline-block h-[0.1em] min-h-[3px] w-[3em] bg-[#facc15]"></span>
                       <span className="hm-tagtxt inline-block font-medium tracking-[0.2em] mr-[-0.2em]">解鎖 2027 冠軍賽道</span>
                     </span>
                   </FitWidthText>
                   <h1 className="hm-dim" style={{ fontSize: 'clamp(84px, min(10.5vw, 19vh), 230px)' }}><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
-                  <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-[2.5vh] hm-eng hm-dim">GREEN ENERGY FORMULA</FitWidthText>
+                  <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-[2.5vh] hm-eng">GREEN ENERGY FORMULA</FitWidthText>
                   <div className="hm-pop mt-[5vh]">
                     <div className={user ? 'hm-breath' : ''}>
                       <button onClick={startGame} disabled={!user}
@@ -939,10 +972,10 @@
                 </div>
 
                 <div className="relative flex flex-col items-center justify-center">
-                  <div className="outline-num hm-num absolute select-none pointer-events-none" style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)' }}>2027</div>
+                  <div className="outline-num hm-num hm-fadeout absolute select-none pointer-events-none" style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)' }}>2027</div>
                   <div className="relative w-full" style={{ maxWidth: 'min(40vw, 72vh)' }}>
                     {/* F1 起跑燈 */}
-                    <div className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ bottom: 'calc(100% + 6vh)' }}>
+                    <div className="hm-fadeout absolute left-0 right-0 flex justify-center pointer-events-none" style={{ bottom: 'calc(100% + 6vh)' }}>
                       <div ref={lightsRef} className="hm-lights" style={{ fontSize: 'clamp(22px, min(2.3vw, 4.2vh), 46px)' }}>
                         {[0, 1, 2, 3, 4].map(i => <div key={i} className="hm-light"></div>)}
                       </div>
@@ -951,11 +984,11 @@
                       <div className="hm-speed"><i style={{ top: '8%', width: '90%' }}></i><i style={{ top: '38%', width: '70%', animationDelay: '.2s' }}></i><i style={{ top: '66%', width: '100%', animationDelay: '.1s' }}></i><i style={{ top: '92%', width: '60%', animationDelay: '.35s' }}></i></div>
                       <F1CarSVG />
                     </div>
-                    <div className="hm-track hm-dim mt-[2vh] flex items-center gap-3 font-hud text-white/70 font-bold tracking-[0.25em]" style={{ fontSize: 'clamp(11px, min(0.9vw, 1.7vh), 18px)' }}>
+                    <div className="hm-fadeout"><div className="hm-track mt-[2vh] flex items-center gap-3 font-hud text-white/70 font-bold tracking-[0.25em]" style={{ fontSize: 'clamp(11px, min(0.9vw, 1.7vh), 18px)' }}>
                       <span>START</span>
                       <div className="flex-1 track-dash"></div>
                       <span>FINISH</span>
-                    </div>
+                    </div></div>
                   </div>
                 </div>
               </div>
@@ -965,7 +998,7 @@
 
           {/* ===== 賽事設定：選 2～10 組桌號 ===== */}
           {view === 'setup' && (
-            <FitStage width={1240}>
+            <FitStage width={1240} className="pg-enter">
               <TitleBlock />
               <RetroWindow title="Race_Setup.exe" right={serverBadge} className="max-w-6xl">
                 <div className="bg-[#facc15] border-b-4 border-black px-5 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -986,6 +1019,7 @@
                       const armed = unmarkArmed === t;
                       return (
                         <button key={t} data-table={t} data-raced={done ? '1' : undefined} onClick={() => toggleTable(t)} disabled={full}
+                          style={{ '--c': Math.floor((t - 1) / 10) + ((t - 1) % 10) }}
                           title={done ? '已比賽（連按兩次可解除）' : undefined}
                           className={`relative h-14 border-4 border-black font-black text-2xl transition-all ${done ? (armed ? 'bg-[#e11d48] text-white' : 'bg-gray-200 text-gray-600') : on ? `${SEL_ON} shadow-[4px_4px_0px_#000] -translate-y-0.5` : full ? 'bg-white/60 text-gray-400 cursor-not-allowed' : `bg-white text-black ${SEL_HOVER} shadow-[2px_2px_0px_#000]`}`}>
                           {armed ? <span className="text-sm">再按解除</span> : pad2(t)}
@@ -1010,11 +1044,11 @@
                   {/* 按鈕縮窄：選滿 10 組時，桌號標籤仍可和按鈕排在同一列，視窗不會被拉長 */}
                   <div className="flex gap-2 items-center shrink-0">
                     <button data-testid="open-history" onClick={() => setShowHistory(true)} title="查看目前成績" className={`${ghostBtn} !px-4 inline-flex items-center gap-1.5 whitespace-nowrap`}>
-                      查看成績<span className="inline-flex items-center justify-center min-w-[1.6em] h-[1.6em] px-1 rounded-full bg-black text-white text-sm leading-none">{history.length}</span>
+                      查看成績
                     </button>
                     {raced.length > 0 && (
-                      <ConfirmButton onConfirm={resetRaced} confirmText="再按確認" title="重置參賽紀錄" className={`${dangerBtn} !px-4 inline-flex items-center gap-1.5 whitespace-nowrap min-w-[8.4em] justify-center`}>
-                        重置紀錄<span className="inline-flex items-center justify-center min-w-[1.6em] h-[1.6em] px-1 rounded-full bg-[#e11d48] text-white text-sm leading-none">{raced.length}</span>
+                      <ConfirmButton onConfirm={resetRaced} confirmText="再按確認" title="重置參賽紀錄" className={`${dangerBtn} !px-4 inline-flex items-center gap-1.5 whitespace-nowrap min-w-[6.5em] justify-center`}>
+                        重置紀錄
                       </ConfirmButton>
                     )}
                     <button onClick={() => setView('home')} className={`${ghostBtn} !px-4 whitespace-nowrap`}>返回</button>
