@@ -82,6 +82,8 @@
       .hm-live .hm-speed { display: block; }
       .hm-live .hm-speed i { animation: hmStreak .6s linear infinite; }
       .hm-live .track-dash { animation: hmDash .5s linear infinite; }
+      /* 比賽中行駛的車子：輪子轉動（比首頁快，有衝刺感）*/
+      .race-wheels .wheel { transform-box: fill-box; transform-origin: center; animation: hmSpin .28s linear infinite; }
       .hm-live .hm-breath { animation: hmBreath 1.6s ease-in-out infinite; }
       /* 3. 起跑燈循環：綠燈出發 → 從另一側開回來 */
       .hm-car.race-out { animation: hmLaunch .75s cubic-bezier(.6,0,.9,.4) forwards !important; }
@@ -116,7 +118,7 @@
     @keyframes hmStamp { 0% { opacity: 0; transform: scale(2.2) rotate(-6deg); } 60% { opacity: 1; } 100% { opacity: 1; transform: scale(1) rotate(0); } }
     @keyframes hmDriveIn { from { transform: translateX(-260%); } }
     @keyframes hmPop { 0% { opacity: 0; transform: scale(.4); } 100% { opacity: 1; transform: scale(1); } }
-    @keyframes hmSpin { to { transform: rotate(-360deg); } }
+    @keyframes hmSpin { to { transform: rotate(360deg); } }   /* 車頭朝右往前開：輪子順時針轉 */
     @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
     @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
     @keyframes hmDash { to { background-position: -28px 0; } }
@@ -1131,7 +1133,8 @@
                                 <div data-lane-text={t} className={`absolute top-1/2 -translate-y-1/2 font-black text-black whitespace-nowrap ${inRace ? 'right-6 text-lg' : 'left-20 text-sm'}`}>
                                   {inRace ? `${score} 分` : st.count === 0 ? '等待加入...' : `${st.count} 人・已準備 ${st.ready}/${st.count}`}
                                 </div>
-                                <div className="absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ease-out" style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
+                                {/* 比賽進行中、還沒到終點的車子輪子會轉動 */}
+                                <div className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ease-out ${status === 'racing' && val < 100 ? 'race-wheels' : ''}`} style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
                                   <F1CarSVG color={color} />
                                 </div>
                               </div>
