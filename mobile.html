@@ -22,7 +22,9 @@
   </script>
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@900&family=Anton&family=Bungee&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
+    /* 標題字「綠能方程式」：Dela Gothic One，只下載這五個字 */
+    @import url('https://fonts.googleapis.com/css2?family=Dela+Gothic+One&text=%E7%B6%A0%E8%83%BD%E6%96%B9%E7%A8%8B%E5%BC%8F&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Anton&family=Bungee&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
     html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
     body {
       font-family: 'Noto Sans TC', sans-serif;
@@ -41,7 +43,7 @@
     .retro-shadow-sm { box-shadow: 3px 3px 0px #000; }
     .retro-text-shadow { text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; }
     /* ===== 標題字：簡單白色黑體 ===== */
-    .logo-plain { font-family: 'Noto Serif TC', 'Noto Sans TC', serif; font-weight: 900; font-style: normal; color: #fff; letter-spacing: 0.02em; line-height: 1.02; display: inline-block; }
+    .logo-plain { font-family: 'Dela Gothic One', 'Noto Sans TC', sans-serif; font-weight: 400; font-style: normal; color: #fff; letter-spacing: 0; line-height: 0.88; margin: 0.085em 0; display: block; width: fit-content; }
     /* ===== 首頁字體系統：襯線粗黑標題 × 窄體英文 × 等寬資訊字 ===== */
     .font-latin { font-family: 'Anton', 'Noto Sans TC', sans-serif; font-weight: 400; letter-spacing: 0.06em; }
     .font-hud { font-family: 'Space Mono', ui-monospace, monospace; }
@@ -224,10 +226,14 @@
           i.style.minHeight = (H / s) + 'px';
           i.style.transform = `scale(${s})`;
         };
-        const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fit); };
-        fit();
+        const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { fit(); watchChild(); }); };
+        // 內容區本身尺寸改變（字型載入、文字寬度調整）也要重新縮放
         const ro = new ResizeObserver(schedule);
+        let watched = null;
+        const watchChild = () => { const c = inner.current && inner.current.firstElementChild; if (c && c !== watched) { if (watched) ro.unobserve(watched); ro.observe(c); watched = c; } };
+        fit(); watchChild();
         ro.observe(outer.current);
+        if (document.fonts) document.fonts.ready.then(schedule);
         const mo = new MutationObserver(schedule);
         mo.observe(inner.current, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
         window.addEventListener('resize', schedule);
@@ -255,6 +261,32 @@
         <polygon points="32,15 34.1,20.4 39.8,20.6 35.3,24.1 36.9,29.6 32,26.4 27.1,29.6 28.7,24.1 24.2,20.6 29.9,20.4" fill="#fff" />
       </svg>
     );
+
+    // 讓英文副標的寬度剛好等於指定元素（例如「方程式」三個字）的寬度
+    const FitWidthText = ({ targetRef, className = '', children }) => {
+      const ref = useRef(null);
+      const [size, setSize] = useState(null);
+      useLayoutEffect(() => {
+        let raf = 0;
+        const fit = () => {
+          const t = targetRef.current, el = ref.current;
+          if (!t || !el || !t.offsetWidth) return;
+          const prev = el.style.fontSize;
+          el.style.fontSize = '100px';
+          const natural = el.scrollWidth;
+          el.style.fontSize = prev;
+          if (natural) setSize(100 * t.offsetWidth / natural);
+        };
+        const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fit); };
+        fit();
+        if (document.fonts) document.fonts.ready.then(schedule);
+        const ro = new ResizeObserver(schedule);
+        if (targetRef.current) ro.observe(targetRef.current);
+        window.addEventListener('resize', schedule);
+        return () => { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('resize', schedule); };
+      }, []);
+      return <div ref={ref} className={`inline-block whitespace-nowrap leading-none ${className}`} style={{ fontSize: size ? `${size}px` : '1em', visibility: size ? 'visible' : 'hidden' }}>{children}</div>;
+    };
 
     const TrafficLight = ({ light }) => (
       <div className="flex gap-1 bg-black rounded-full px-1 py-0.5 shrink-0">
@@ -297,6 +329,7 @@
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
       const [pendingTable, setPendingTable] = useState(null);
+      const formulaRef = useRef(null);   // 首頁「方程式」三個字（英文副標對齊用）
       const [shake, setShake] = useState(0);
       const codeInputRef = useRef(null);   // 正在輸入暱稱、準備加入的桌號
       const [nameDraft, setNameDraft] = useState(loadName);
@@ -675,18 +708,21 @@
             {/* ===== 手機首頁（海報式排版）===== */}
             {view === 'home' && (
               <div className="flex-1 flex flex-col px-6 pt-5 pb-6 text-white relative">
-                <div className="flex justify-between items-center font-hud font-bold text-[11px] tracking-[0.25em]">
-                  <span className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 bg-[#e11d48] border-2 border-black"></span>TSRC RACING</span>
+                <div className="flex justify-start items-center font-hud font-bold text-[11px] tracking-[0.25em]">
                   <span className="text-white/60">SEASON 2027</span>
                 </div>
 
-                <div className="mt-9">
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="inline-block h-[3px] w-8 bg-[#facc15]"></span>
-                    <span className="font-medium text-[15px] tracking-[0.18em]">解鎖你的 2027 冠軍賽道</span>
-                  </div>
-                  <h1 className="text-[78px]"><LogoText>綠能<br />方程式</LogoText></h1>
-                  <div className="font-latin text-[#facc15] text-[25px] mt-3">GREEN ENERGY FORMULA</div>
+                <div className="flex-1 flex flex-col justify-center">
+                <div>
+                  {/* 黃線＋副標：整體寬度與「方程式」相同 */}
+                  <FitWidthText targetRef={formulaRef} className="mb-4">
+                    <span className="inline-flex items-center gap-[0.6em] text-white">
+                      <span className="inline-block h-[0.12em] min-h-[3px] w-[2.2em] bg-[#facc15]"></span>
+                      <span className="font-medium tracking-[0.18em] mr-[-0.18em]">解鎖 2027 冠軍賽道</span>
+                    </span>
+                  </FitWidthText>
+                  <h1 className="text-[78px]"><LogoText>綠能<br /><span ref={formulaRef} className="inline-block">方程式</span></LogoText></h1>
+                  <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-3">GREEN ENERGY FORMULA</FitWidthText>
                 </div>
 
                 <div className="relative mt-8 mb-8">
@@ -694,7 +730,6 @@
                   <div className="relative w-full max-w-[320px] aspect-[120/45]"><F1CarSVG color="#e11d48" /></div>
                   <div className="mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
                     <span>START</span><div className="flex-1 track-dash"></div><span>FINISH</span>
-                    <div className="w-5 h-5 flag border-2 border-black shrink-0"></div>
                   </div>
                 </div>
 
@@ -704,13 +739,6 @@
                   </button>
                 </div>
 
-                <div className="mt-auto pt-8 grid grid-cols-3 border-t-2 border-white/30">
-                  {[['01', '輸入房號'], ['02', '選擇車隊'], ['03', '30 秒衝刺']].map(([n, t], i) => (
-                    <div key={n} className={`pt-2 ${i ? 'pl-3 border-l-2 border-white/30' : ''}`}>
-                      <div className="font-hud font-bold text-[#facc15] text-xs">{n}</div>
-                      <div className="font-medium text-[13px] tracking-wider text-white/90">{t}</div>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
