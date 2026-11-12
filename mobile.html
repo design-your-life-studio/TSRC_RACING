@@ -67,6 +67,8 @@
       animation: popScore 0.6s ease-out forwards;
       text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
     }
+    @keyframes countPop { 0% { transform: scale(1.8); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(0.85); opacity: 0; } }
+    .count-pop { animation: countPop 1s ease-out forwards; }
     .bulb-on-red { background: #ef4444; box-shadow: 0 0 8px 1px #ef4444; }
     .bulb-on-yellow { background: #facc15; box-shadow: 0 0 8px 1px #facc15; }
     .bulb-on-green { background: #22c55e; box-shadow: 0 0 8px 1px #22c55e; }
@@ -83,7 +85,13 @@
     const { useState, useEffect, useRef, useLayoutEffect } = React;
 
     // ================= 遊戲設定（需與 index.html 一致）=================
-    const POINTS_PER_BUBBLE = 10;   // 原始得分邏輯：戳破一顆 +10（第四階段使用）
+    const POINTS_PER_BUBBLE = 10;   // 原始得分邏輯：戳破一顆 +10
+    const TARGET_SCORE = 500;       // 任一組先到此分數，比賽立即結束
+    const RACE_DURATION = 30;       // 比賽秒數
+    const COUNTDOWN_MS = 3000;      // 3、2、1 倒數
+    const SPAWN_INTERVAL = 800;     // 泡泡生成間隔（原始設定）
+    const FLUSH_MS = 300;           // 分數回傳間隔
+    const MAX_STEP = 60;            // 單次回傳最多增加的分數（與資料庫規則一致）
     const CAR_COLORS = [
       { id: 'red',    hex: '#e11d48', name: '賽道紅' },
       { id: 'blue',   hex: '#3b82f6', name: '極速藍' },
@@ -96,7 +104,7 @@
       { id: 'lime',   hex: '#a3e635', name: '萊姆綠' },
       { id: 'black',  hex: '#334155', name: '碳纖黑' },
     ];
-    // 原始遊戲的三種泡泡（第四階段使用）
+    // 原始遊戲的三種泡泡
     const BUBBLE_TYPES = [
       { text: '低滾動阻力', color: 'bg-[#38bdf8]' },
       { text: '耐磨', color: 'bg-[#f472b6]' },
@@ -233,6 +241,17 @@
       const [myTable, setMyTable] = useState(null);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
+      // 比賽用
+      const [now, setNow] = useState(Date.now());
+      const [myScore, setMyScore] = useState(0);
+      const [bubbles, setBubbles] = useState([]);
+      const [pops, setPops] = useState([]);
+      const offsetRef = useRef(0);
+      const scoreRef = useRef(0);       // 本場個人累積分數（本機）
+      const sentRef = useRef(0);        // 已成功寫入資料庫的分數
+      const inflightRef = useRef(false);
+      const raceKeyRef = useRef(null);
+      const idRef = useRef(0);
 
       const uid = user?.uid;
       const myKey = myTable ? teamKey(myTable) : null;
@@ -262,20 +281,30 @@
         }).catch(() => setView('home'));
       }, [uid]);
 
-      // 3. 即時監聽房間；房間被關閉時退回輸入畫面
+      // 3. 即時監聽房間（分開監聽各區塊，不接收其他玩家的逐筆分數，避免手機負擔過重）
       useEffect(() => {
         if (!roomCode) { setRoom(null); return; }
-        return onValue(ref(db, `rooms/${roomCode}`), s => {
-          const data = s.val();
-          if (!data || data.meta?.status === 'closed') {
-            saveSession(null);
-            setRoomCode(null); setMyTable(null);
-            setView('join');
-            setError('房間已被主控端關閉，請輸入新的房間編號');
-            return;
-          }
-          setRoom(data);
-        }, err => console.error(err));
+        const PARTS = ['meta', 'tables', 'teams', 'players', 'teamScores', 'result'];
+        let latest = {};
+        const seen = new Set();
+        const offs = PARTS.map(part =>
+          onValue(ref(db, `rooms/${roomCode}/${part}`), s => {
+            latest = { ...latest, [part]: s.val() };
+            seen.add(part);
+            if (part === 'meta') {
+              const m = s.val();
+              if (!m || m.status === 'closed') {
+                saveSession(null);
+                setRoomCode(null); setMyTable(null);
+                setView('join');
+                setError('房間已被主控端關閉，請輸入新的房間編號');
+                return;
+              }
+            }
+            if (seen.size === PARTS.length && latest.meta) setRoom(latest);   // 全部區塊都到齊才更新畫面
+          }, err => console.error(err))
+        );
+        return () => offs.forEach(off => off());
       }, [roomCode]);
 
       // 4. 在線狀態：斷線時伺服器自動標記離線，重新連線後恢復在線
@@ -311,6 +340,89 @@
           set(ref(db, `${roomPath}/teams/${myKey}/leaderUid`), uid).catch(console.error);
         }
       }, [room, myKey, uid]);
+
+      // ===== 比賽 =====
+      const countdownAt = room?.meta?.countdownAt || null;
+      const raceStart = countdownAt ? countdownAt + COUNTDOWN_MS : null;
+      const raceEnd = raceStart ? raceStart + RACE_DURATION * 1000 : null;
+      const inRace = view === 'team' && !!myKey && (status === 'countdown' || status === 'racing');
+      const playing = inRace && raceStart && now >= raceStart && now < raceEnd;
+
+      useEffect(() => onValue(ref(db, '.info/serverTimeOffset'), s => { offsetRef.current = Number(s.val()) || 0; }), []);
+
+      // 比賽中的時鐘（使用伺服器時間，所有裝置一致）
+      useEffect(() => {
+        if (!inRace) return;
+        const tick = () => setNow(Date.now() + offsetRef.current);
+        tick();
+        const id = setInterval(tick, 100);
+        return () => clearInterval(id);
+      }, [inRace]);
+
+      // 每場比賽開始時歸零；若是比賽中重新整理，從資料庫接回自己的分數
+      useEffect(() => {
+        if (!countdownAt || !myKey || !uid || raceKeyRef.current === countdownAt) return;
+        raceKeyRef.current = countdownAt;
+        scoreRef.current = 0; sentRef.current = 0; setMyScore(0);
+        get(ref(db, `${roomPath}/scores/${myKey}/${uid}`)).then(snap => {
+          const v = Number(snap.val()?.s) || 0;
+          if (v > sentRef.current) { sentRef.current = v; scoreRef.current = Math.max(scoreRef.current, v); setMyScore(scoreRef.current); }
+        }).catch(() => {});
+      }, [countdownAt, myKey, uid]);
+
+      // 分數回傳：比賽中每 0.3 秒送出一次累積分數（只送自己的，只增不減）
+      useEffect(() => {
+        if (status !== 'racing' || !myKey || !uid) return;
+        const flush = () => {
+          if (inflightRef.current || scoreRef.current <= sentRef.current) return;
+          const next = Math.min(scoreRef.current, sentRef.current + MAX_STEP);
+          inflightRef.current = true;
+          set(ref(db, `${roomPath}/scores/${myKey}/${uid}`), { s: next, t: serverTimestamp() })
+            .then(() => { sentRef.current = next; })
+            .catch(err => console.warn('分數回傳失敗', err?.code || err))
+            .finally(() => { inflightRef.current = false; });
+        };
+        const id = setInterval(flush, FLUSH_MS);
+        return () => clearInterval(id);
+      }, [status, myKey, uid, roomPath]);
+
+      // 泡泡生成（原始遊戲：每 0.8 秒一顆，4～6 秒浮上去）
+      useEffect(() => {
+        if (!playing) { setBubbles([]); return; }
+        const timers = [];
+        const spawn = () => {
+          const type = BUBBLE_TYPES[Math.floor(Math.random() * BUBBLE_TYPES.length)];
+          const id = ++idRef.current;
+          const left = Math.max(10, Math.min(70, Math.random() * 80));
+          const duration = 4 + Math.random() * 2;
+          setBubbles(prev => [...prev, { id, ...type, left, duration }]);
+          timers.push(setTimeout(() => setBubbles(prev => prev.filter(b => b.id !== id)), duration * 1000));
+        };
+        spawn();
+        const iv = setInterval(spawn, SPAWN_INTERVAL);
+        return () => { clearInterval(iv); timers.forEach(clearTimeout); };
+      }, [playing]);
+
+      // 戳泡泡：+10（原始得分邏輯），按下瞬間就算
+      const handlePop = (e, bubble) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!playing) return;
+        if (navigator.vibrate) navigator.vibrate(50);
+        scoreRef.current += POINTS_PER_BUBBLE;
+        setMyScore(scoreRef.current);
+        const rect = e.currentTarget.getBoundingClientRect();
+        const popId = ++idRef.current;
+        setPops(prev => [...prev, { id: popId, x: rect.left + rect.width / 2, y: rect.top }]);
+        setBubbles(prev => prev.filter(b => b.id !== bubble.id));
+        setTimeout(() => setPops(prev => prev.filter(p => p.id !== popId)), 600);
+      };
+
+      // 確認準備／取消準備
+      const toggleReady = () => {
+        if (!myKey || !uid || status !== 'lobby') return;
+        const cur = !!room?.players?.[myKey]?.[uid]?.ready;
+        set(ref(db, `${roomPath}/players/${myKey}/${uid}/ready`), !cur).catch(err => { console.error(err); setError('操作失敗，請再試一次'); });
+      };
 
       // 驗證房間是否存在、是否開放加入
       const joinRoom = async () => {
@@ -413,6 +525,74 @@
             <div className="z-30 bg-[#e11d48] text-white font-black text-center text-sm py-1 border-b-4 border-black">連線中斷，正在重新連線...</div>
           )}
 
+          {inRace ? (
+            <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
+              {/* 狀態列：組別、剩餘時間、即時分數 */}
+              <div className="p-3 shrink-0">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow p-2 flex justify-between items-center gap-2">
+                  <div className="bg-white border-4 border-black px-2 py-1 leading-tight">
+                    <div className="text-[10px] font-black">TEAM</div>
+                    <div className="font-black text-lg" data-testid="race-team">第 {pad2(myTable)} 桌</div>
+                  </div>
+                  <div className={`border-4 border-black px-3 py-1 text-center leading-none ${raceEnd && now >= raceEnd - 5000 && now < raceEnd ? 'bg-[#e11d48] text-white animate-pulse' : 'bg-black text-[#facc15]'}`}>
+                    <div className="text-[10px] font-black">TIME</div>
+                    <div className="font-latin text-3xl" data-testid="race-time">{raceStart && now >= raceStart ? Math.max(0, Math.ceil((raceEnd - now) / 1000)) : RACE_DURATION}</div>
+                  </div>
+                  <div className="text-right leading-tight">
+                    <div className="text-[10px] font-black">TEAM SCORE</div>
+                    <div className="bg-white border-4 border-black rounded-full px-3 inline-block">
+                      <span className="font-black text-2xl" data-testid="team-score">{room?.teamScores?.[myKey] || 0}</span>
+                    </div>
+                    <div className="text-[11px] font-black mt-0.5">我 +{myScore}</div>
+                  </div>
+                </div>
+                {/* 我方進度條 */}
+                <div className="mt-2 h-3 bg-white/20 border-2 border-black rounded-full overflow-hidden">
+                  <div className="h-full bg-[#22c55e] transition-all duration-300" style={{ width: `${Math.min(100, ((room?.teamScores?.[myKey] || 0) / TARGET_SCORE) * 100)}%` }}></div>
+                </div>
+              </div>
+
+              {/* 遊戲互動區（原始泡泡玩法）*/}
+              <div className="flex-1 relative touch-none select-none">
+                {bubbles.map(bubble => (
+                  <div key={bubble.id} data-bubble onPointerDown={(e) => handlePop(e, bubble)}
+                    className={`absolute bottom-0 w-24 h-24 ${bubble.color} border-4 border-black rounded-full flex items-center justify-center p-2 cursor-pointer shadow-[inset_-4px_-4px_0px_rgba(0,0,0,0.2)] retro-shadow-sm bubble-anim`}
+                    style={{ left: `${bubble.left}%`, animationDuration: `${bubble.duration}s` }}>
+                    <span className="font-black text-black text-center text-sm leading-tight pointer-events-none">{bubble.text}</span>
+                    <div className="absolute top-2 left-2 w-4 h-4 bg-white rounded-full opacity-60 pointer-events-none"></div>
+                  </div>
+                ))}
+
+                {/* 倒數 3、2、1、GO */}
+                {raceStart && now < raceStart + 800 && (() => {
+                  const left = raceStart - now;
+                  const label = left > 0 ? String(Math.min(3, Math.ceil(left / 1000))) : 'GO!';
+                  return (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+                      <div key={label} data-testid="m-countdown" className={`count-pop font-latin text-[150px] leading-none ${label === 'GO!' ? 'text-[#22c55e]' : 'text-white'}`} style={{ WebkitTextStroke: '3px #000' }}>{label}</div>
+                    </div>
+                  );
+                })()}
+
+                {/* 時間到，等主控端結算 */}
+                {raceEnd && now >= raceEnd && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6">
+                    <div className="bg-[#e11d48] border-4 border-black retro-shadow p-6 text-center">
+                      <div className="font-latin text-5xl text-white">TIME UP!</div>
+                      <div className="font-black text-white mt-2 animate-pulse">結算中，請看大螢幕...</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 點擊特效 +10 */}
+              {pops.map(pop => (
+                <div key={pop.id} className="fixed z-50 pointer-events-none score-pop" style={{ left: pop.x - 20, top: pop.y - 20 }}>
+                  <span className="text-3xl font-black italic text-[#facc15]">+{POINTS_PER_BUBBLE}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
           <FitArea>
 
             {view === 'loading' && (
@@ -522,7 +702,7 @@
             )}
 
             {/* ===== 我的車隊：組長選色／組員查看 ===== */}
-            {view === 'team' && room && myTable && (
+            {view === 'team' && room && myTable && status === 'lobby' && (
               <div className="flex-1 flex flex-col p-4 gap-4">
                 <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-center">
                   <div>
@@ -571,19 +751,63 @@
                       <li key={m.id} data-member={m.id} className={`flex items-center gap-2 font-bold ${m.online ? '' : 'text-gray-400'}`}>
                         <span className={`w-2.5 h-2.5 rounded-full ${m.online ? 'bg-green-500' : 'bg-gray-300'}`}></span>
                         <span>車手 {i + 1}{m.id === uid ? '（你）' : ''}</span>
-                        {m.id === leaderUid && <span className="ml-auto text-xs bg-[#e11d48] text-white px-2 py-0.5 border-2 border-black">組長</span>}
-                        {!m.online && <span className="ml-auto text-xs">離線</span>}
+                        <span className="ml-auto flex gap-1">
+                          {m.id === leaderUid && <span className="text-xs bg-[#e11d48] text-white px-2 py-0.5 border-2 border-black">組長</span>}
+                          {m.online && (m.ready
+                            ? <span className="text-xs bg-[#22c55e] text-black px-2 py-0.5 border-2 border-black">已準備</span>
+                            : <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 border-2 border-black">未準備</span>)}
+                          {!m.online && <span className="text-xs">離線</span>}
+                        </span>
                       </li>
                     ))}
                   </ul>
                 </div>
 
                 {error && <p className="text-black font-black bg-white border-2 border-black px-3 py-1 text-center">{error}</p>}
-                <p className="text-center text-white/70 font-bold text-xs">（開發中：「確認準備完成」將於第四階段加入）</p>
+                {(() => {
+                  const meReady = !!room.players?.[myKey]?.[uid]?.ready;
+                  return (
+                    <button data-testid="ready-btn" onClick={toggleReady}
+                      className={`w-full border-4 border-black rounded-full py-3 font-black text-xl retro-shadow active:translate-y-[6px] active:shadow-none transition-all ${meReady ? 'bg-white text-black' : 'bg-[#22c55e] text-white'}`}>
+                      {meReady ? '已準備完成（點此取消）' : '確認準備完成'}
+                    </button>
+                  );
+                })()}
+                <p className="text-center text-white/80 font-bold text-xs">全隊都按下準備後，大螢幕會亮綠燈</p>
                 <button onClick={leaveTeam} disabled={status !== 'lobby'} className="mx-auto font-black text-white underline">更換車隊</button>
               </div>
             )}
+            {/* ===== 比賽結束／中止（完整排名於第五階段加入）===== */}
+            {view === 'team' && room && myTable && (status === 'finished' || status === 'aborted') && (() => {
+              const ranking = room.result?.ranking || [];
+              const mine = ranking.find(r => r.table === myTable);
+              const top = ranking.filter(r => r.rank === 1 && r.score > 0);
+              const aborted = status === 'aborted';
+              const iWon = !aborted && top.some(r => r.table === myTable);
+              return (
+                <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4">
+                  <div data-testid="m-result" className={`${iWon ? 'bg-[#facc15]' : 'bg-white'} border-4 border-black retro-shadow p-6 text-center w-full max-w-sm`}>
+                    <div className="font-latin text-5xl text-black mb-2">{aborted ? 'STOPPED' : iWon ? 'WINNER!' : 'FINISH'}</div>
+                    <div className="inline-block bg-black text-white font-black text-sm px-3 py-1 mb-4">
+                      {{ target: `率先達到 ${TARGET_SCORE} 分`, timeout: `${RACE_DURATION} 秒時間到`, aborted: '工作人員緊急中止' }[room.meta?.endReason] || '比賽結束'}
+                    </div>
+                    {!aborted && (
+                      <p className="font-black text-black text-lg mb-2">
+                        {top.length ? `冠軍：第 ${top.map(r => pad2(r.table)).join('、')} 桌` : '本場無人得分'}
+                      </p>
+                    )}
+                    <div className="border-t-4 border-black pt-3 mt-2 font-black text-black">
+                      第 {pad2(myTable)} 桌：{mine ? `${mine.score} 分` : '—'}{mine && !aborted ? `（第 ${mine.rank} 名）` : ''}
+                      <div className="text-sm font-bold text-gray-600 mt-1">你個人貢獻 {myScore} 分</div>
+                    </div>
+                    {iWon && <p className="mt-4 font-black text-black bg-[#22c55e] border-4 border-black py-2 px-3">跑出命定奪冠路線！率先取得 2027 產線認證！</p>}
+                  </div>
+                  <p className="text-white/80 font-bold text-sm text-center">{aborted ? '請等待工作人員重新開始' : '請看大螢幕公布結果'}</p>
+                </div>
+              );
+            })()}
           </FitArea>
+          )}
         </div>
       );
     };
