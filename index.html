@@ -24,6 +24,7 @@
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@900&family=Anton&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
+    html, body { height: 100%; overflow: hidden; }
     body { font-family: 'Noto Sans TC', sans-serif; }
     .retro-title {
       text-shadow: 4px 4px 0px #e11d48, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
@@ -67,7 +68,7 @@
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
     import { getDatabase, ref, get, set, update, onValue, runTransaction, onDisconnect } from 'firebase/database';
 
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef, useLayoutEffect } = React;
 
     // ================= 遊戲設定 =================
     const TOTAL_TABLES = 60;     // 桌號 01～60
@@ -215,6 +216,33 @@
 
     // 標題字元件：簡單白色黑體，無任何特效
     const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
+
+    // 畫面自動縮放：內容依固定設計寬度排版，再等比縮放到剛好放進視窗（電腦端永遠不需要捲動）
+    const FitStage = ({ width, children }) => {
+      const outer = useRef(null);
+      const inner = useRef(null);
+      const [scale, setScale] = useState(1);
+      useLayoutEffect(() => {
+        const fit = () => {
+          const o = outer.current, i = inner.current;
+          if (!o || !i || !i.offsetWidth || !i.offsetHeight) return;
+          const s = Math.min(1.35, (o.clientWidth - 48) / i.offsetWidth, (o.clientHeight - 48) / i.offsetHeight);
+          setScale(s > 0 ? s : 1);
+        };
+        fit();
+        const ro = new ResizeObserver(fit);
+        ro.observe(outer.current); ro.observe(inner.current);
+        window.addEventListener('resize', fit);
+        return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
+      }, []);
+      return (
+        <div ref={outer} className="absolute inset-0 flex items-center justify-center overflow-hidden">
+          <div ref={inner} className="flex flex-col items-center shrink-0" style={{ width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+            {children}
+          </div>
+        </div>
+      );
+    };
 
     const TitleBlock = ({ big }) => (
       <div className="text-center mb-8 z-10 flex flex-col items-center">
@@ -380,9 +408,9 @@
       );
 
       return (
-        <div className="min-h-screen bg-[#1e3a8a] bg-grid flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <div className="h-screen w-screen bg-[#1e3a8a] bg-grid flex flex-col items-center justify-center relative overflow-hidden">
           {error && (
-            <div className="z-30 mb-4 bg-[#e11d48] text-white font-black px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000]">{error}</div>
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-[#e11d48] text-white font-black px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000]">{error}</div>
           )}
 
           {view === 'loading' && <TitleBlock big />}
@@ -440,7 +468,7 @@
 
           {/* ===== 賽事設定：選 2～10 組桌號 ===== */}
           {view === 'setup' && (
-            <>
+            <FitStage width={1240}>
               <TitleBlock />
               <RetroWindow title="Race_Setup.exe" right={serverBadge} className="max-w-6xl">
                 <div className="bg-[#facc15] border-b-4 border-black px-5 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -494,12 +522,12 @@
               <button onClick={createRoom} disabled={!canCreate || busy || !user} className={`mt-8 ${bigBtn(canCreate && !busy && !!user)}`}>
                 <span>◀</span> {busy ? '建立中...' : canCreate ? `建立房間（${selected.length} 組）` : `至少選 ${MIN_TEAMS} 組`} <span>▶</span>
               </button>
-            </>
+            </FitStage>
           )}
 
           {/* ===== 房間等待畫面 ===== */}
           {view === 'room' && (
-            <>
+            <FitStage width={1360}>
               <TitleBlock />
               {!room ? (
                 <div className="text-white font-black text-2xl animate-pulse">讀取房間中...</div>
@@ -561,7 +589,7 @@
                   </button>
                 </div>
               )}
-            </>
+            </FitStage>
           )}
         </div>
       );
