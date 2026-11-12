@@ -55,6 +55,8 @@
     .outline-num { font-family: 'Anton', sans-serif; color: transparent; -webkit-text-stroke: 2px rgba(255,255,255,0.13); line-height: 0.8; letter-spacing: 0.02em; }
     .track-dash { background-image: linear-gradient(90deg, rgba(255,255,255,0.55) 50%, transparent 50%); background-size: 28px 4px; background-repeat: repeat-x; height: 4px; }
     .qr-box svg { width: 100%; height: 100%; display: block; }
+    @keyframes countPop { 0% { transform: scale(1.8); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(0.85); opacity: 0; } }
+    .count-pop { animation: countPop 1s ease-out forwards; }
     .bulb-on-red { background: #ef4444; box-shadow: 0 0 10px 2px #ef4444; }
     .bulb-on-yellow { background: #facc15; box-shadow: 0 0 10px 2px #facc15; }
     .bulb-on-green { background: #22c55e; box-shadow: 0 0 10px 2px #22c55e; }
@@ -66,7 +68,7 @@
   <script type="text/babel" data-type="module">
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-    import { getDatabase, ref, get, set, update, onValue, runTransaction, onDisconnect } from 'firebase/database';
+    import { getDatabase, ref, get, set, update, onValue, runTransaction, onDisconnect, serverTimestamp } from 'firebase/database';
 
     const { useState, useEffect, useMemo, useRef, useLayoutEffect } = React;
 
@@ -75,8 +77,11 @@
     const MAX_TEAMS = 10;        // 每場最多參賽組數
     const MIN_TEAMS = 2;         // 每場最少參賽組數
     const RACED_STORAGE_KEY = 'tsrc_raced_tables'; // 本機瀏覽器記錄：已比過賽的桌號
-    const TARGET_SCORE = 500;    // 先到此分數的組別立即獲勝（第四階段使用）
-    const RACE_DURATION = 30;    // 比賽秒數（第四階段使用）
+    const TARGET_SCORE = 500;    // 任一組先到此分數，比賽立即結束
+    const RACE_DURATION = 30;    // 比賽秒數
+    const COUNTDOWN_MS = 3000;   // 3、2、1 倒數；之後顯示 GO 並正式開賽
+    const FINISH_GRACE_MS = 1200;  // 時間到後，等手機最後一次回傳分數的緩衝
+    const TEAM_SCORE_SYNC_MS = 250; // 主控端把各組總分同步給手機的頻率
     const HOST_STORAGE_KEY = 'tsrc_host_room';
 
     // 賽車可選顏色（手機端與主控端必須一致）
@@ -139,6 +144,27 @@
       online.sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0) || (a[0] < b[0] ? -1 : 1));
       return online.length ? online[0][0] : null;
     };
+    // 各組總分 = 組內每位玩家分數加總（玩家只能寫自己的分數）
+    const teamSums = (room) => {
+      const sums = {};
+      (room?.tables || []).forEach(t => {
+        sums[t] = Object.values(room?.scores?.[teamKey(t)] || {}).reduce((a, p) => a + (Number(p?.s) || 0), 0);
+      });
+      return sums;
+    };
+    // 排名：分數高者在前；同分同名次，桌號小的排前面
+    const rankTeams = (tables, sums) => {
+      const list = [...tables].map(t => ({ table: t, score: sums[t] || 0 })).sort((a, b) => b.score - a.score || a.table - b.table);
+      list.forEach((r, i) => { r.rank = i > 0 && r.score === list[i - 1].score ? list[i - 1].rank : i + 1; });
+      return list;
+    };
+    const raceWindow = (meta) => {
+      if (!meta?.countdownAt) return null;
+      const start = meta.countdownAt + COUNTDOWN_MS;
+      return { countdownAt: meta.countdownAt, start, end: start + RACE_DURATION * 1000 };
+    };
+    const END_REASON_TEXT = { target: `率先達到 ${TARGET_SCORE} 分`, timeout: `${RACE_DURATION} 秒時間到`, aborted: '工作人員緊急中止' };
+
     const playerUrl = (code) => {
       const u = new URL('mobile.html', location.href);
       u.search = `?room=${code}`;
@@ -164,6 +190,12 @@
           <circle cx="90" cy="30" r="2" fill="#000" />
           <circle cx="50" cy="20" r="6" fill="#fff" />
         </g>
+      </svg>
+    );
+
+    const TrophyIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#e11d48] drop-shadow-[4px_4px_0px_#000]">
+        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
       </svg>
     );
 
@@ -269,6 +301,11 @@
       const [room, setRoom] = useState(null);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
+      const [now, setNow] = useState(Date.now());      // 伺服器時間（比賽中每 0.1 秒更新）
+      const offsetRef = useRef(0);                      // 本機與 Firebase 伺服器的時間差
+      const sumsRef = useRef({});
+      const refereeRef = useRef({ racingFor: null, finishedFor: null });
+      const lastSyncRef = useRef('');
 
       // 1. 匿名登入 + 連線狀態
       useEffect(() => {
@@ -310,18 +347,121 @@
         }
       }, [room, view, roomCode]);
 
-      // 組長備援：準備階段由主控端確保每組組長正確（手機端也會自行接手，兩邊結果一致）
+      // 組長備援 + 顏色防撞：準備階段由主控端確保每組組長正確、各組顏色不重複
       useEffect(() => {
         if (!room || !roomCode || room.meta?.status !== 'lobby') return;
         const updates = {};
+        const used = new Set();
         (room.tables || []).forEach(t => {
           const key = teamKey(t);
           const current = room.teams?.[key]?.leaderUid || null;
           const desired = resolveLeader(room.players?.[key], current);
           if (desired !== current) updates[`teams/${key}/leaderUid`] = desired;
+          let color = room.teams?.[key]?.color;
+          if (!color || used.has(color)) {
+            const free = CAR_COLORS.find(c => !used.has(c.id) && !(room.tables || []).some(o => o !== t && room.teams?.[teamKey(o)]?.color === c.id));
+            if (free) { color = free.id; updates[`teams/${key}/color`] = color; }
+          }
+          used.add(color);
         });
         if (Object.keys(updates).length) update(ref(db, `rooms/${roomCode}`), updates).catch(console.error);
       }, [room, roomCode]);
+
+      // ===== 比賽控制（主控端擔任裁判）=====
+      const status = room?.meta?.status || 'lobby';
+      const win = raceWindow(room?.meta);
+      const sums = useMemo(() => teamSums(room), [room]);
+      sumsRef.current = sums;
+
+      // 伺服器時間差：所有裝置用同一個時鐘計算倒數
+      useEffect(() => onValue(ref(db, '.info/serverTimeOffset'), s => { offsetRef.current = Number(s.val()) || 0; }), []);
+
+      const finishRace = (reason) => {
+        if (!room || !win || refereeRef.current.finishedFor === win.countdownAt) return;
+        refereeRef.current.finishedFor = win.countdownAt;
+        const ranking = rankTeams(room.tables || [], sumsRef.current);
+        const teamScores = {};
+        ranking.forEach(r => { teamScores[teamKey(r.table)] = r.score; });
+        update(ref(db, `rooms/${roomCode}`), {
+          'meta/status': 'finished', 'meta/endReason': reason, 'meta/finishedAt': serverTimestamp(),
+          teamScores, result: { reason, ranking },
+        }).catch(err => { console.error(err); refereeRef.current.finishedFor = null; });
+      };
+
+      // 計時與結束判斷：倒數結束 → 正式開賽；任一組達 500 分或 30 秒到 → 結束
+      useEffect(() => {
+        if (!win || !['countdown', 'racing'].includes(status)) return;
+        const tick = () => {
+          const t = Date.now() + offsetRef.current;
+          setNow(t);
+          if (status === 'countdown' && t >= win.start && refereeRef.current.racingFor !== win.countdownAt) {
+            refereeRef.current.racingFor = win.countdownAt;
+            update(ref(db, `rooms/${roomCode}/meta`), { status: 'racing' }).catch(err => { console.error(err); refereeRef.current.racingFor = null; });
+          }
+          if (status === 'racing') {
+            if (Object.values(sumsRef.current).some(v => v >= TARGET_SCORE)) finishRace('target');
+            else if (t >= win.end + FINISH_GRACE_MS) finishRace('timeout');
+          }
+        };
+        tick();
+        const id = setInterval(tick, 100);
+        return () => clearInterval(id);
+      }, [status, win?.countdownAt, roomCode]);
+
+      // 有組別達標時立即結束（不用等下一次計時）
+      useEffect(() => {
+        if (status === 'racing' && Object.values(sums).some(v => v >= TARGET_SCORE)) finishRace('target');
+      }, [sums, status]);
+
+      // 比賽中把各組總分同步給手機（節流）
+      useEffect(() => {
+        if (status !== 'racing' || !roomCode) return;
+        const id = setInterval(() => {
+          const payload = {};
+          Object.entries(sumsRef.current).forEach(([t, v]) => { payload[teamKey(t)] = v; });
+          const key = JSON.stringify(payload);
+          if (key === lastSyncRef.current) return;
+          lastSyncRef.current = key;
+          set(ref(db, `rooms/${roomCode}/teamScores`), payload).catch(console.error);
+        }, TEAM_SCORE_SYNC_MS);
+        return () => clearInterval(id);
+      }, [status, roomCode]);
+
+      const allGreen = !!room?.tables?.length && room.tables.every(t => teamStatus(room, t).light === 'green');
+
+      const startRace = () => {
+        if (!room || status !== 'lobby' || !allGreen) return;
+        lastSyncRef.current = '';
+        update(ref(db, `rooms/${roomCode}`), {
+          'meta/status': 'countdown', 'meta/countdownAt': serverTimestamp(), 'meta/endReason': null, 'meta/finishedAt': null,
+          scores: null, teamScores: null, result: null,
+        }).catch(err => { console.error(err); setError('開始失敗，請檢查網路'); });
+      };
+
+      // 緊急中止：立即停止比賽並保留當下分數
+      const abortRace = () => {
+        if (!room || !['countdown', 'racing'].includes(status)) return;
+        refereeRef.current.finishedFor = win?.countdownAt ?? 'aborted';
+        const ranking = rankTeams(room.tables || [], sumsRef.current);
+        update(ref(db, `rooms/${roomCode}`), {
+          'meta/status': 'aborted', 'meta/endReason': 'aborted', 'meta/finishedAt': serverTimestamp(),
+          result: { reason: 'aborted', ranking },
+        }).catch(console.error);
+      };
+
+      // 重置本場：同一批車隊回到準備狀態（全員需重新確認準備）
+      const resetRace = () => {
+        if (!room) return;
+        const updates = {
+          'meta/status': 'lobby', 'meta/countdownAt': null, 'meta/endReason': null, 'meta/finishedAt': null,
+          scores: null, teamScores: null, result: null,
+        };
+        Object.entries(room.players || {}).forEach(([k, members]) => {
+          Object.keys(members || {}).forEach(id => { updates[`players/${k}/${id}/ready`] = false; });
+        });
+        refereeRef.current = { racingFor: null, finishedFor: null };
+        update(ref(db, `rooms/${roomCode}`), updates).catch(console.error);
+      };
 
       // 比賽正式開始（進入倒數）後，把本場桌號記錄為「已比賽」
       const roomStatus = room?.meta?.status;
@@ -534,6 +674,25 @@
               ) : (
                 <div className="w-full max-w-7xl flex gap-6 items-stretch z-10">
                   {/* 左：房號 + QR Code */}
+                  {status !== 'lobby' ? (
+                    <div className="w-80 shrink-0 bg-[#facc15] border-4 border-black rounded-xl shadow-[12px_12px_0px_#000] p-5 flex flex-col items-center">
+                      <div className="font-black text-black text-xl">{{ countdown: '準備起跑', racing: '比賽進行中', finished: '比賽結束', aborted: '比賽已中止' }[status]}</div>
+                      <div className="mt-4 font-hud font-bold text-black/70 tracking-[0.3em] text-sm">TIME LEFT</div>
+                      <div data-testid="race-timer" className={`font-latin text-[120px] leading-none mt-1 ${status === 'racing' && win && win.end - now <= 5000 ? 'text-[#e11d48] animate-pulse' : 'text-black'}`}>
+                        {(() => {
+                          if (!win) return '30';
+                          if (status === 'countdown') return String(RACE_DURATION);
+                          if (status === 'racing') return String(Math.max(0, Math.ceil((win.end - now) / 1000))).padStart(2, '0');
+                          return '00';
+                        })()}
+                      </div>
+                      <div className="font-hud font-bold text-black tracking-[0.2em] text-sm">SEC</div>
+                      <div className="w-full h-1 bg-black my-6"></div>
+                      <div className="font-black text-black text-lg">目標分數</div>
+                      <div className="font-latin text-6xl text-black">{TARGET_SCORE}</div>
+                      <div className="mt-auto w-full bg-black text-[#facc15] font-mono font-black text-center py-2 border-4 border-black">ROOM {roomCode}</div>
+                    </div>
+                  ) : (
                   <div className="w-80 shrink-0 bg-[#facc15] border-4 border-black rounded-xl shadow-[12px_12px_0px_#000] p-5 flex flex-col items-center">
                     <div className="font-black text-black text-xl mb-1">房間編號</div>
                     <div data-testid="room-code" className="bg-black text-[#facc15] font-mono font-black text-5xl tracking-[0.2em] pl-[0.2em] px-3 py-2 border-4 border-black mb-5">{roomCode}</div>
@@ -545,6 +704,7 @@
                       <div className="flex items-center gap-2"><TrafficLight light="green" /> 準備完成</div>
                     </div>
                   </div>
+                  )}
 
                   {/* 右：十台賽車 */}
                   <RetroWindow title="TSRC_Racing.exe" right={serverBadge} className="flex-1">
@@ -558,6 +718,9 @@
                         {(room.tables || []).map(t => {
                           const st = teamStatus(room, t);
                           const color = colorHex(room.teams?.[teamKey(t)]?.color);
+                          const inRace = status !== 'lobby';
+                          const score = status === 'finished' || status === 'aborted' ? (room.teamScores?.[teamKey(t)] ?? sums[t] ?? 0) : (sums[t] || 0);
+                          const val = inRace ? Math.min((score / TARGET_SCORE) * 100, 100) : 0;
                           return (
                             <div key={t} data-lane={t} className="flex items-center gap-3">
                               <div className="w-16 h-10 bg-[#facc15] border-4 border-black rounded flex items-center justify-center shadow-[3px_3px_0px_#000] z-20 shrink-0">
@@ -565,10 +728,13 @@
                               </div>
                               <TrafficLight light={st.light} />
                               <div className="flex-1 h-10 bg-white border-4 border-black rounded-r-full relative shadow-[inset_0px_4px_0px_rgba(0,0,0,0.1)]">
-                                <div className="absolute left-20 top-1/2 -translate-y-1/2 font-black text-black text-sm whitespace-nowrap">
-                                  {st.count === 0 ? '等待加入...' : `${st.count} 人・已準備 ${st.ready}/${st.count}`}
+                                {inRace && (
+                                  <div className="h-full bg-[#22c55e] border-r-4 border-black transition-all duration-300 ease-out rounded-r-full" style={{ width: `${Math.max(val, 5)}%` }}></div>
+                                )}
+                                <div data-lane-text={t} className={`absolute top-1/2 -translate-y-1/2 font-black text-black whitespace-nowrap ${inRace ? 'right-6 text-lg' : 'left-20 text-sm'}`}>
+                                  {inRace ? `${score} 分` : st.count === 0 ? '等待加入...' : `${st.count} 人・已準備 ${st.ready}/${st.count}`}
                                 </div>
-                                <div className="absolute top-1/2 -translate-y-1/2 z-30" style={{ left: '-15px', width: '60px', height: '35px' }}>
+                                <div className="absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ease-out" style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
                                   <F1CarSVG color={color} />
                                 </div>
                               </div>
@@ -581,16 +747,69 @@
                 </div>
               )}
 
-              {room && (
+              {room && status === 'lobby' && (
                 <div className="mt-8 flex items-center gap-6 z-10">
                   <ConfirmButton onConfirm={closeRoom} confirmText="再按一次確認取消" className={ghostBtn}>取消房間・回首頁</ConfirmButton>
-                  <button disabled className={bigBtn(false)}>
-                    <span>◀</span> 全部綠燈後開放開始 <span>▶</span>
+                  <button onClick={startRace} disabled={!allGreen || !connected} data-testid="start-race" className={bigBtn(allGreen && connected)}>
+                    <span>◀</span> {allGreen ? '開始比賽' : '全部綠燈後開放開始'} <span>▶</span>
                   </button>
+                </div>
+              )}
+              {room && (status === 'countdown' || status === 'racing') && (
+                <div className="mt-8 flex items-center gap-6 z-10">
+                  <ConfirmButton onConfirm={abortRace} confirmText="再按一次確認中止" className={ghostBtn}>緊急中止比賽</ConfirmButton>
                 </div>
               )}
             </FitStage>
           )}
+
+          {/* 3、2、1、GO 倒數 */}
+          {view === 'room' && win && (status === 'countdown' || (status === 'racing' && now < win.start + 1000)) && (() => {
+            const left = win.start - now;
+            const label = left > 0 ? String(Math.min(3, Math.ceil(left / 1000))) : 'GO!';
+            return (
+              <div className="absolute inset-0 z-50 bg-black/45 flex items-center justify-center pointer-events-none">
+                <div key={label} data-testid="countdown" className={`count-pop font-latin leading-none ${label === 'GO!' ? 'text-[#22c55e]' : 'text-white'}`}
+                  style={{ fontSize: 'min(34vw, 60vh)', WebkitTextStroke: '0.02em #000' }}>{label}</div>
+              </div>
+            );
+          })()}
+
+          {/* 比賽結束／中止（完整排名於第五階段加入）*/}
+          {view === 'room' && room && (status === 'finished' || status === 'aborted') && (() => {
+            const ranking = room.result?.ranking || [];
+            const top = ranking.filter(r => r.rank === 1 && r.score > 0);
+            const aborted = status === 'aborted';
+            return (
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div data-testid="result-card" className="bg-[#facc15] border-8 border-black p-10 max-w-2xl w-full text-center shadow-[16px_16px_0px_#e11d48]">
+                  {aborted ? (
+                    <h2 className="font-latin text-7xl text-black mb-4">STOPPED</h2>
+                  ) : (
+                    <>
+                      <div className="flex justify-center mb-4"><TrophyIcon /></div>
+                      <h2 className="font-latin text-8xl text-black mb-4">WINNER!</h2>
+                    </>
+                  )}
+                  <div className="inline-block bg-black text-white font-black px-4 py-1 mb-5">結束原因：{END_REASON_TEXT[room.meta?.endReason] || '—'}</div>
+                  {!aborted && (
+                    <div className="bg-white border-4 border-black p-4 mb-6 shadow-[6px_6px_0px_#000]">
+                      {top.length ? (
+                        <p className="text-4xl font-black text-black">第 <span className="text-[#e11d48] text-6xl">{top.map(r => pad2(r.table)).join('、')}</span> 桌{top.length > 1 ? '（並列）' : ''}<span className="block text-2xl mt-2">{top[0].score} 分</span></p>
+                      ) : <p className="text-3xl font-black text-black">本場無人得分</p>}
+                    </div>
+                  )}
+                  {!aborted && top.length > 0 && (
+                    <p className="text-2xl font-black text-black bg-[#22c55e] border-4 border-black py-2 px-4 shadow-[4px_4px_0px_#000] mb-6">跑出命定奪冠路線！率先取得 2027 產線認證！</p>
+                  )}
+                  <div className="flex justify-center gap-4">
+                    <ConfirmButton onConfirm={resetRace} confirmText="再按一次確認重賽" className={ghostBtn}>同組重新比賽</ConfirmButton>
+                    <ConfirmButton onConfirm={closeRoom} confirmText="再按一次確認結束" className={ghostBtn}>結束房間・回首頁</ConfirmButton>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       );
     };
