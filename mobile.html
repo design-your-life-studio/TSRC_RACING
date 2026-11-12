@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>綠能方程式 - Player UI</title>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -16,30 +16,32 @@
       "imports": {
         "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
         "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+        "firebase/database": "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js"
       }
     }
   </script>
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@700;900&family=Righteous&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Righteous&display=swap');
     body {
       font-family: 'Noto Sans TC', sans-serif;
       margin: 0; padding: 0;
       overscroll-behavior-y: contain;
       touch-action: manipulation;
-      -webkit-user-select: none; user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+    /* 背景：低對比藍色賽車格紋 */
     .bg-grid {
-      background-size: 40px 40px;
-      background-image:
-        linear-gradient(to right, rgba(255,255,255,0.15) 2px, transparent 2px),
-        linear-gradient(to bottom, rgba(255,255,255,0.15) 2px, transparent 2px);
+      background-color: #1e3a8a;
+      background-image: conic-gradient(rgba(255,255,255,0.06) 25%, transparent 0 50%, rgba(255,255,255,0.06) 0 75%, transparent 0);
+      background-size: 88px 88px;
     }
     .retro-shadow { box-shadow: 6px 6px 0px #000; }
     .retro-shadow-sm { box-shadow: 3px 3px 0px #000; }
     .retro-text-shadow { text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; }
+    /* ===== 標題字：簡單白色黑體 ===== */
+    .logo-plain { font-family: 'Noto Sans TC', sans-serif; font-weight: 900; font-style: normal; color: #fff; letter-spacing: 0.04em; line-height: 1.12; text-align: center; display: inline-block; }
+    .retro-title-m { text-shadow: 3px 3px 0px #e11d48, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000; }
 
     @keyframes floatUp {
       0% { transform: translateY(150px) scale(0.5); opacity: 0; }
@@ -58,226 +60,166 @@
       animation: popScore 0.6s ease-out forwards;
       text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
     }
+    .bulb-on-red { background: #ef4444; box-shadow: 0 0 8px 1px #ef4444; }
+    .bulb-on-yellow { background: #facc15; box-shadow: 0 0 8px 1px #facc15; }
+    .bulb-on-green { background: #22c55e; box-shadow: 0 0 8px 1px #22c55e; }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
-  <!-- 使用 module 模式來支援 ES6 Imports -->
   <script type="text/babel" data-type="module">
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-    import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, serverTimestamp } from 'firebase/firestore';
+    import { getDatabase, ref, get, onValue } from 'firebase/database';
 
-    const { useState, useEffect, useRef, useCallback } = React;
+    const { useState, useEffect } = React;
 
     // ================= 遊戲設定（需與 index.html 一致）=================
-    const TOTAL_TABLES = 60;
-    const TABLES_PER_ROUND = 10;
-    const GAME_DURATION = 30;
-    const POINTS_PER_BUBBLE = 10;
-    const FLUSH_INTERVAL = 1000;     // 每隔多久把累積分數送回資料庫 (毫秒)
-    const SPAWN_INTERVAL = 800;      // 泡泡生成間隔 (毫秒)
-    const STORAGE_KEY = 'tsrc_racing_table';
-
-    // ================= Firebase =================
-    const firebaseConfig = {
-      apiKey: "AIzaSyAVKXL-r-MM2NSs9f6T9LPX70b-CAgCXQY",
-      authDomain: "tsrc-racing.firebaseapp.com",
-      projectId: "tsrc-racing",
-      storageBucket: "tsrc-racing.firebasestorage.app",
-      messagingSenderId: "859095220602",
-      appId: "1:859095220602:web:70c4d9be106383a97656c3",
-      measurementId: "G-1RLXCDE731"
-    };
-    const APP_ID = 'tsrc-game-default';
-
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    const stateRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'game', 'state');
-    const playersCol = collection(db, 'artifacts', APP_ID, 'public', 'data', 'players');
-
-    // ================= 工具 =================
-    const roundTables = (round) => {
-      const start = (round - 1) * TABLES_PER_ROUND + 1;
-      const end = Math.min(round * TABLES_PER_ROUND, TOTAL_TABLES);
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-    };
-    const roundOfTable = (t) => Math.ceil(t / TABLES_PER_ROUND);
-    const getStatus = (game) => {
-      if (!game || game.status === 'waiting' || !game.gameId) return 'waiting';
-      return game.status;
-    };
-    const validTable = (v) => (Number.isInteger(v) && v >= 1 && v <= TOTAL_TABLES ? v : null);
-
-    // 桌號來源：網址 ?table=N（QR Code）優先，其次是這支手機上次綁定的桌號
-    const getInitialTable = () => {
-      const fromUrl = validTable(parseInt(new URLSearchParams(location.search).get('table'), 10));
-      if (fromUrl) { try { localStorage.setItem(STORAGE_KEY, fromUrl); } catch (e) {} return fromUrl; }
-      try { return validTable(parseInt(localStorage.getItem(STORAGE_KEY), 10)); } catch (e) { return null; }
-    };
-    const saveTable = (n) => {
-      try { n ? localStorage.setItem(STORAGE_KEY, n) : localStorage.removeItem(STORAGE_KEY); } catch (e) {}
-      history.replaceState(null, '', n ? `${location.pathname}?table=${n}` : location.pathname);
-    };
-
-    // ================= UI 元件 =================
-    const TrophyIcon = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#facc15" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
-      </svg>
-    );
-
-    const Overlay = ({ color = 'bg-[#38bdf8]', rotate = 'rotate-1', children }) => (
-      <div className="absolute inset-0 flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm z-40">
-        <div className={`${color} border-4 border-black retro-shadow p-6 text-center transform ${rotate} w-full max-w-sm`}>
-          {children}
-        </div>
-      </div>
-    );
-
+    const POINTS_PER_BUBBLE = 10;   // 原始得分邏輯：戳破一顆 +10（第四階段使用）
+    const CAR_COLORS = [
+      { id: 'red',    hex: '#e11d48', name: '賽道紅' },
+      { id: 'blue',   hex: '#3b82f6', name: '極速藍' },
+      { id: 'green',  hex: '#22c55e', name: '綠能綠' },
+      { id: 'yellow', hex: '#facc15', name: '閃電黃' },
+      { id: 'pink',   hex: '#f472b6', name: '霓虹粉' },
+      { id: 'orange', hex: '#f97316', name: '烈焰橘' },
+      { id: 'purple', hex: '#a855f7', name: '電光紫' },
+      { id: 'cyan',   hex: '#38bdf8', name: '天際藍' },
+      { id: 'lime',   hex: '#a3e635', name: '萊姆綠' },
+      { id: 'black',  hex: '#334155', name: '碳纖黑' },
+    ];
+    // 原始遊戲的三種泡泡（第四階段使用）
     const BUBBLE_TYPES = [
       { text: '低滾動阻力', color: 'bg-[#38bdf8]' },
       { text: '耐磨', color: 'bg-[#f472b6]' },
       { text: '濕地抓地力', color: 'bg-[#22c55e]' },
     ];
 
+    // ================= Firebase =================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAVKXL-r-MM2NSs9f6T9LPX70b-CAgCXQY",
+      authDomain: "tsrc-racing.firebaseapp.com",
+      // 注意：請到 Firebase 主控台 → Realtime Database 複製實際網址貼在這裡（需與 index.html 相同）
+      databaseURL: "https://tsrc-racing-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "tsrc-racing",
+      storageBucket: "tsrc-racing.firebasestorage.app",
+      messagingSenderId: "859095220602",
+      appId: "1:859095220602:web:70c4d9be106383a97656c3",
+      measurementId: "G-1RLXCDE731"
+    };
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    // ================= 工具 =================
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const teamKey = (t) => `t${t}`;
+    const colorHex = (id) => (CAR_COLORS.find(c => c.id === id) || CAR_COLORS[1]).hex;
+    const teamStatus = (room, t) => {
+      const players = Object.values(room?.players?.[teamKey(t)] || {}).filter(p => p && p.online);
+      if (!players.length) return { light: 'red', count: 0, ready: 0 };
+      const ready = players.filter(p => p.ready).length;
+      return { light: ready === players.length ? 'green' : 'yellow', count: players.length, ready };
+    };
+    const urlRoom = (() => {
+      const v = new URLSearchParams(location.search).get('room') || '';
+      return /^\d{6}$/.test(v) ? v : '';
+    })();
+
+    // ================= UI 元件 =================
+    const F1CarSVG = ({ color = '#3b82f6' }) => (
+      <svg viewBox="0 0 120 45" className="w-full h-full drop-shadow-md">
+        <g stroke="#000" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round">
+          <path d="M10,35 L110,35 L115,25 L105,25 Z" fill="#1e3a8a" />
+          <path d="M5,15 L25,15 L25,25 L5,25 Z" fill="#e11d48" />
+          <path d="M10,5 L15,5 L15,35 L10,35 Z" fill="#000" />
+          <path d="M25,25 L45,15 L75,15 L100,25 Z" fill={color} />
+          <path d="M55,15 C55,5 70,5 70,15 Z" fill="#fff" />
+          <path d="M40,25 L65,25 L65,30 L40,30 Z" fill="#22c55e" />
+          <path d="M105,30 L115,30 L115,35 L105,35 Z" fill="#e11d48" />
+          <circle cx="25" cy="30" r="12" fill="#1f2937" />
+          <circle cx="25" cy="30" r="6" fill="#facc15" />
+          <circle cx="25" cy="30" r="2" fill="#000" />
+          <circle cx="90" cy="30" r="12" fill="#1f2937" />
+          <circle cx="90" cy="30" r="6" fill="#facc15" />
+          <circle cx="90" cy="30" r="2" fill="#000" />
+          <circle cx="50" cy="20" r="6" fill="#fff" />
+        </g>
+      </svg>
+    );
+
+    // 標題字元件：簡單白色黑體，無任何特效
+    const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
+
+    const TrafficLight = ({ light }) => (
+      <div className="flex gap-1 bg-black rounded-full px-1 py-0.5 shrink-0">
+        {['red', 'yellow', 'green'].map(c => (
+          <div key={c} className={`w-3 h-3 rounded-full ${light === c ? `bulb-on-${c}` : 'bg-gray-600'}`}></div>
+        ))}
+      </div>
+    );
+
+    const bigBtn = (color = 'bg-[#22c55e]', enabled = true) => `w-full ${enabled ? `${color} text-white retro-shadow active:translate-y-[6px] active:shadow-none` : 'bg-gray-400 text-gray-700'} border-4 border-black rounded-full py-4 font-black text-2xl flex items-center justify-center gap-2 transition-all`;
+
+    // ================= 主程式 =================
     const MobileApp = () => {
       const [user, setUser] = useState(null);
-      const [table, setTable] = useState(getInitialTable);
-      const [inputVal, setInputVal] = useState('');
-      const [errorMsg, setErrorMsg] = useState('');
-      const [game, setGame] = useState(null);
-      const [score, setScore] = useState(0);
-      const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
-      const [bubbles, setBubbles] = useState([]);
-      const [pops, setPops] = useState([]);
+      const [connected, setConnected] = useState(false);
+      const [view, setView] = useState('home'); // home | join | room
+      const [code, setCode] = useState(urlRoom);
+      const [roomCode, setRoomCode] = useState(null);
+      const [room, setRoom] = useState(null);
+      const [checking, setChecking] = useState(false);
+      const [error, setError] = useState('');
 
-      const scoreRef = useRef(0);       // 本場個人累積分數
-      const lastSentRef = useRef(-1);   // 上次送出的分數（沒變就不送，省用量）
-      const gameIdRef = useRef(null);
-      const idRef = useRef(0);
-
-      const status = getStatus(game);
-      const round = game?.round || 1;
-      const gameId = status === 'waiting' ? null : game.gameId;
-      const currentTables = roundTables(round);
-      const inRound = !!table && currentTables.includes(table);
-      const isPlaying = status === 'playing' && inRound;
-
-      // 1. 匿名登入
+      // 1. 匿名登入 + 連線狀態（Firebase SDK 會自動斷線重連）
       useEffect(() => {
-        signInAnonymously(auth).catch(err => console.error('匿名登入失敗', err));
-        return onAuthStateChanged(auth, setUser);
+        signInAnonymously(auth).catch(err => { console.error(err); setError('登入失敗，請檢查網路後重新整理'); });
+        const unAuth = onAuthStateChanged(auth, setUser);
+        const unConn = onValue(ref(db, '.info/connected'), s => setConnected(s.val() === true));
+        return () => { unAuth(); unConn(); };
       }, []);
 
-      // 2. 只監聽遊戲狀態（不監聽別人的分數，大幅減少讀取量）
+      // 2. 已進入房間：即時監聽房間資料；房間被關閉時退回輸入畫面
       useEffect(() => {
-        if (!user) return;
-        return onSnapshot(stateRef,
-          snap => setGame(snap.exists() ? snap.data() : null),
-          err => console.error('Firebase 監聽失敗', err)
-        );
-      }, [user]);
+        if (!roomCode) { setRoom(null); return; }
+        return onValue(ref(db, `rooms/${roomCode}`), s => {
+          const data = s.val();
+          if (!data || data.meta?.status === 'closed') {
+            setRoomCode(null);
+            setView('join');
+            setError('房間已被主控端關閉，請輸入新的房間編號');
+            return;
+          }
+          setRoom(data);
+        }, err => console.error(err));
+      }, [roomCode]);
 
-      // 3. 換新的一場 → 個人分數歸零；若是比賽中重新整理，接回先前的分數
-      useEffect(() => {
-        gameIdRef.current = gameId;
-        scoreRef.current = 0;
-        lastSentRef.current = -1;
-        setScore(0);
-        if (!gameId || !user) return;
-        let cancelled = false;
-        getDoc(doc(playersCol, user.uid)).then(snap => {
-          const d = snap.data();
-          if (cancelled || !d || d.gameId !== gameId || !d.score) return;
-          scoreRef.current += d.score;
-          setScore(scoreRef.current);
-        }).catch(() => {});
-        return () => { cancelled = true; };
-      }, [gameId, user]);
-
-      // 4. 把累積分數定時送回（每支手機只寫自己的文件，不會互相塞車）
-      const flush = useCallback(() => {
-        const gid = gameIdRef.current;
-        if (!user || !table || !gid) return;
-        const s = scoreRef.current;
-        if (s === lastSentRef.current) return;
-        lastSentRef.current = s;
-        setDoc(doc(playersCol, user.uid), { gameId: gid, table, score: s, updatedAt: serverTimestamp() })
-          .catch(err => { console.error('分數回傳失敗', err); lastSentRef.current = -1; });
-      }, [user, table]);
-
-      useEffect(() => {
-        if (!isPlaying) return;
-        flush(); // 開賽立即報到（0 分也送，大螢幕可顯示各桌人數）
-        const t = setInterval(flush, FLUSH_INTERVAL);
-        return () => { clearInterval(t); flush(); }; // 結束時補送最後一次
-      }, [isPlaying, flush]);
-
-      // 5. 手機端倒數顯示
-      useEffect(() => {
-        if (!isPlaying) return;
-        const duration = game.duration || GAME_DURATION;
-        const start = Date.now();
-        const tick = () => setTimeLeft(Math.max(0, Math.ceil(duration - (Date.now() - start) / 1000)));
-        tick();
-        const t = setInterval(tick, 250);
-        return () => clearInterval(t);
-      }, [isPlaying, gameId]);
-
-      // 6. 泡泡生成
-      useEffect(() => {
-        if (!isPlaying) { setBubbles([]); return; }
-        const timers = [];
-        const spawnBubble = () => {
-          const type = BUBBLE_TYPES[Math.floor(Math.random() * BUBBLE_TYPES.length)];
-          const id = ++idRef.current;
-          const left = 5 + Math.random() * 65;
-          const duration = 4 + Math.random() * 2;
-          setBubbles(prev => [...prev, { id, ...type, left, duration }]);
-          timers.push(setTimeout(() => setBubbles(prev => prev.filter(b => b.id !== id)), duration * 1000));
-        };
-        spawnBubble();
-        const interval = setInterval(spawnBubble, SPAWN_INTERVAL);
-        return () => { clearInterval(interval); timers.forEach(clearTimeout); };
-      }, [isPlaying]);
-
-      // 7. 戳泡泡（用 pointerdown，按下瞬間就算，移動中的泡泡也點得到）
-      const handlePop = (e, bubble) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!isPlaying) return;
-        if (navigator.vibrate) navigator.vibrate(30);
-        scoreRef.current += POINTS_PER_BUBBLE;
-        setScore(scoreRef.current);
-        const rect = e.currentTarget.getBoundingClientRect();
-        const popId = ++idRef.current;
-        setPops(prev => [...prev, { id: popId, x: rect.left + rect.width / 2, y: rect.top }]);
-        setBubbles(prev => prev.filter(b => b.id !== bubble.id));
-        setTimeout(() => setPops(prev => prev.filter(p => p.id !== popId)), 600);
+      // 3. 驗證房間是否存在、是否開放加入
+      const joinRoom = async () => {
+        const c = code.trim();
+        if (!/^\d{6}$/.test(c)) { setError('請輸入 6 位數房間編號'); return; }
+        if (!user) { setError('連線中，請稍候再試'); return; }
+        setChecking(true); setError('');
+        try {
+          const m = (await get(ref(db, `rooms/${c}/meta`))).val();
+          if (!m) setError('查無此房間，請確認編號');
+          else if (m.status === 'closed') setError('此房間已關閉');
+          else if (m.status !== 'lobby') setError('比賽已經開始，目前無法加入');
+          else { setRoomCode(c); setView('room'); }
+        } catch (err) {
+          console.error(err);
+          setError('連線失敗，請檢查網路後再試');
+        } finally {
+          setChecking(false);
+        }
       };
 
-      const bindTable = () => {
-        const n = validTable(parseInt(inputVal, 10));
-        if (!n) { setErrorMsg(`⚠️ 桌次僅限 1~${TOTAL_TABLES}`); return; }
-        setTable(n);
-        saveTable(n);
-        setErrorMsg('');
-      };
-      const unbindTable = () => {
-        setTable(null);
-        setInputVal('');
-        saveTable(null);
-      };
-
-      const rangeText = (r) => { const t = roundTables(r); return `第 ${t[0]}–${t[t.length - 1]} 桌`; };
-      const winners = game?.winners || [];
-      const finalScores = game?.finalScores || {};
+      const goHome = () => { setRoomCode(null); setRoom(null); setError(''); setView('home'); };
 
       return (
-        <div className="w-full h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
+        <div className="w-full min-h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
           <div className="absolute inset-0 bg-grid z-0 pointer-events-none"></div>
 
           {/* 頂部導覽列 */}
@@ -289,126 +231,89 @@
             </div>
             <span className="font-black text-black text-lg tracking-wider font-['Righteous'] uppercase">Player_UI.exe</span>
             <div className="w-10">
-              <div className={`w-3 h-3 rounded-full border-2 border-black ml-auto ${user ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <div className={`w-3 h-3 rounded-full border-2 border-black ml-auto ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
             </div>
           </div>
+          {!connected && user && (
+            <div className="z-30 bg-[#e11d48] text-white font-black text-center text-sm py-1 border-b-4 border-black">連線中斷，正在重新連線...</div>
+          )}
 
-          {/* 狀態列 */}
-          <div className="p-4 z-20 shrink-0 relative">
-            <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-center transform -rotate-1 relative">
-              <div className="bg-white border-4 border-black px-3 py-1">
-                <span className="font-black text-xl">{table ? `第 ${table} 桌` : '未綁定'}</span>
-              </div>
-              {isPlaying && (
-                <div className={`border-4 border-black px-3 py-1 font-black text-2xl font-mono ${timeLeft <= 5 ? 'bg-[#e11d48] text-white animate-pulse' : 'bg-black text-[#facc15]'}`}>
-                  {timeLeft}s
+          <div className="flex-1 flex flex-col z-10 relative">
+
+            {/* ===== 手機首頁 ===== */}
+            {view === 'home' && (
+              <div className="flex-1 flex flex-col items-center justify-center px-6 py-8 text-center">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow px-4 py-1 mb-4">
+                  <span className="font-medium text-black text-base tracking-wider">解鎖你的 2027 冠軍賽道</span>
                 </div>
-              )}
-              <div className="text-right">
-                <div className="font-black text-sm mb-1 font-['Righteous']">MY SCORE</div>
-                <div className="bg-white border-4 border-black rounded-full px-4 py-1 inline-block">
-                  <span className="font-black text-2xl italic">{score}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 遊戲互動區 */}
-          <div className="flex-1 relative z-10 touch-none">
-
-            {/* 綁定桌次 */}
-            {!table && (
-              <div className="absolute inset-0 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm z-50">
-                <div className="bg-[#f472b6] border-4 border-black retro-shadow p-6 text-center transform -rotate-2 w-full max-w-sm">
-                  <h2 className="text-3xl font-black text-white mb-6 retro-text-shadow tracking-widest">綁定所屬車隊</h2>
-                  <div className="bg-[#38bdf8] border-4 border-black p-4 mb-4 retro-shadow-sm">
-                    <label className="block text-black font-black mb-3 text-lg">請輸入桌次號碼 (1-{TOTAL_TABLES})：</label>
-                    <input type="number" inputMode="numeric" pattern="\d*" min="1" max={TOTAL_TABLES} value={inputVal}
-                      onChange={(e) => { setInputVal(e.target.value); setErrorMsg(''); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') bindTable(); }}
-                      className="w-full text-center text-6xl font-black italic p-2 border-4 border-black bg-white focus:outline-none focus:bg-[#facc15] transition-colors select-text" />
-                  </div>
-                  {errorMsg && <p className="text-black font-black mb-4 bg-white border-2 border-black inline-block px-3 py-1">{errorMsg}</p>}
-                  <button onClick={bindTable} className="w-full bg-[#22c55e] text-white border-4 border-black rounded-full py-4 font-black text-2xl flex items-center justify-center gap-2 retro-shadow active:translate-y-[6px] active:shadow-none transition-all">
-                    確認綁定
+                <h1 className="text-[68px] mb-8"><LogoText>綠能<br />方程式</LogoText></h1>
+                <div className="w-56 h-24 mb-10 -rotate-3"><F1CarSVG color="#e11d48" /></div>
+                <div className="w-full max-w-[220px]">
+                  <button onClick={() => { setError(''); setView('join'); }} className={`${bigBtn('bg-[#e11d48]')} !py-3 !text-xl`}>
+                    ▶ 開始遊戲
                   </button>
                 </div>
+                <p className="mt-8 text-white/80 font-bold text-sm">請看大螢幕上的房間編號或掃描 QR Code</p>
               </div>
             )}
 
-            {/* 等待開始 */}
-            {table && status === 'waiting' && (
-              <Overlay>
-                <div className="bg-white border-4 border-black rounded-full w-24 h-24 mx-auto flex items-center justify-center mb-4 retro-shadow-sm">
-                  <TrophyIcon />
+            {/* ===== 輸入房間編號 ===== */}
+            {view === 'join' && (
+              <div className="flex-1 flex items-center justify-center p-6">
+                <div className="bg-[#f472b6] border-4 border-black retro-shadow p-6 text-center transform -rotate-1 w-full max-w-sm">
+                  <h2 className="text-3xl font-black text-white mb-6 retro-text-shadow tracking-widest">加入賽事房間</h2>
+                  <div className="bg-[#38bdf8] border-4 border-black p-4 mb-4 retro-shadow-sm">
+                    <label className="block text-black font-black mb-3 text-lg">請輸入 6 位數房間編號</label>
+                    <input type="text" inputMode="numeric" autoComplete="off" pattern="\d*" maxLength={6} value={code}
+                      onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') joinRoom(); }}
+                      placeholder="000000"
+                      className="w-full text-center text-5xl font-black font-mono tracking-[0.15em] p-2 border-4 border-black bg-white placeholder:text-gray-300 focus:outline-none focus:bg-[#facc15] transition-colors" />
+                  </div>
+                  {error && <p data-testid="join-error" className="text-black font-black mb-4 bg-white border-2 border-black inline-block px-3 py-1">{error}</p>}
+                  <button onClick={joinRoom} disabled={checking} className={bigBtn('bg-[#22c55e]', !checking)}>
+                    {checking ? '驗證中...' : '加入房間'}
+                  </button>
+                  <button onClick={goHome} className="mt-4 font-black text-black underline">返回首頁</button>
                 </div>
-                <h2 className="text-3xl font-black text-white mb-2 retro-text-shadow">賽車手集結！</h2>
-                <div className="h-1 bg-black w-full my-4"></div>
-                {inRound ? (
-                  <p className="font-black text-black text-xl mb-4 animate-pulse">下一場就是你！<br />等待大螢幕指示開始...</p>
+              </div>
+            )}
+
+            {/* ===== 已進入房間（第三階段將加入選桌、組長、顏色）===== */}
+            {view === 'room' && (
+              <div className="flex-1 flex flex-col p-4 gap-4">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-center -rotate-1">
+                  <div>
+                    <div className="font-black text-xs">ROOM</div>
+                    <div data-testid="joined-room" className="font-black font-mono text-2xl tracking-widest">{roomCode}</div>
+                  </div>
+                  <span className="bg-white border-4 border-black px-3 py-1 font-black">選擇你的車隊</span>
+                </div>
+
+                {!room ? (
+                  <div className="text-white font-black text-center animate-pulse mt-10">讀取房間中...</div>
                 ) : (
-                  <p className="font-black text-black text-lg mb-4">
-                    準備中：第 {round} 梯次（{rangeText(round)}）<br />
-                    你的車隊在 <span className="text-white retro-text-shadow text-2xl">第 {roundOfTable(table)} 梯次</span>，請稍候
-                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {(room.tables || []).map(t => {
+                      const st = teamStatus(room, t);
+                      return (
+                        <div key={t} data-card={t} className="bg-white border-4 border-black retro-shadow-sm p-3 flex flex-col items-center">
+                          <div className="w-full flex justify-between items-center mb-1">
+                            <span className="font-black text-xl">第 {pad2(t)} 桌</span>
+                            <TrafficLight light={st.light} />
+                          </div>
+                          <div className="w-24 h-10 my-1"><F1CarSVG color={colorHex(room.teams?.[teamKey(t)]?.color)} /></div>
+                          <div className="font-bold text-sm">{st.count} 人加入</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-                <button onClick={unbindTable} className="text-sm font-bold text-black underline">桌號綁錯了？重新綁定</button>
-              </Overlay>
-            )}
 
-            {/* 其他梯次比賽中 */}
-            {table && status !== 'waiting' && !inRound && (
-              <Overlay color="bg-white" rotate="-rotate-1">
-                <h2 className="text-2xl font-black text-black mb-3">🏁 第 {round} 梯次比賽中</h2>
-                <p className="font-black text-black text-lg mb-2">（{rangeText(round)}）</p>
-                <div className="h-1 bg-black w-full my-4"></div>
-                <p className="font-black text-black text-lg">你的車隊在第 {roundOfTable(table)} 梯次<br />先看大螢幕幫大家加油吧！</p>
-              </Overlay>
-            )}
-
-            {/* 時間到 */}
-            {inRound && status === 'judging' && (
-              <Overlay color="bg-[#e11d48]" rotate="-rotate-2">
-                <h2 className="text-5xl font-black italic text-white retro-text-shadow mb-3">TIME UP!</h2>
-                <p className="font-black text-white text-xl animate-pulse">計算成績中，請看大螢幕...</p>
-              </Overlay>
-            )}
-
-            {/* 本場結果 */}
-            {inRound && status === 'finished' && (
-              winners.includes(table) ? (
-                <Overlay color="bg-[#facc15]" rotate="rotate-2">
-                  <div className="flex justify-center mb-3"><TrophyIcon /></div>
-                  <h2 className="text-4xl font-black italic text-white retro-text-shadow mb-3">恭喜奪冠！</h2>
-                  <p className="font-black text-black text-lg bg-[#22c55e] border-4 border-black py-2 px-3 mb-4">跑出命定奪冠路線！<br />率先取得 2027 產線認證！</p>
-                  <p className="font-black text-black">本桌總分 {finalScores[table] || 0}・你貢獻了 {score} 分</p>
-                </Overlay>
-              ) : (
-                <Overlay color="bg-[#38bdf8]" rotate="-rotate-1">
-                  <h2 className="text-3xl font-black text-white retro-text-shadow mb-3">比賽結束！</h2>
-                  <p className="font-black text-black text-xl mb-3">
-                    {winners.length ? `本場冠軍：第 ${winners.join('、')} 桌` : '本場無人得分'}
-                  </p>
-                  <div className="h-1 bg-black w-full my-3"></div>
-                  <p className="font-black text-black">本桌總分 {finalScores[table] || 0}・你貢獻了 {score} 分</p>
-                </Overlay>
-              )
-            )}
-
-            {/* 泡泡 */}
-            {bubbles.map(bubble => (
-              <div key={bubble.id} onPointerDown={(e) => handlePop(e, bubble)} className={`absolute bottom-0 w-24 h-24 ${bubble.color} border-4 border-black rounded-full flex items-center justify-center p-2 cursor-pointer shadow-[inset_-4px_-4px_0px_rgba(0,0,0,0.2)] retro-shadow-sm bubble-anim`} style={{ left: `${bubble.left}%`, animationDuration: `${bubble.duration}s` }}>
-                <span className="font-black text-black text-center text-sm leading-tight pointer-events-none">{bubble.text}</span>
-                <div className="absolute top-2 left-2 w-4 h-4 bg-white rounded-full opacity-60 pointer-events-none"></div>
+                <p className="text-center text-white/70 font-bold text-xs">（開發中：選桌、組長與顏色功能將於第三階段加入）</p>
+                <button onClick={goHome} className="mx-auto font-black text-white underline">離開房間</button>
               </div>
-            ))}
-
-            {/* 點擊特效（fixed，位置對準被戳的泡泡）*/}
-            {pops.map(pop => (
-              <div key={pop.id} className="fixed z-50 pointer-events-none score-pop" style={{ left: pop.x - 20, top: pop.y - 20 }}>
-                <span className="text-3xl font-black italic text-[#facc15]">+{POINTS_PER_BUBBLE}</span>
-              </div>
-            ))}
+            )}
           </div>
         </div>
       );
