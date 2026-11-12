@@ -23,7 +23,7 @@
   </script>
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Righteous&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@900&family=Anton&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
     body { font-family: 'Noto Sans TC', sans-serif; }
     .retro-title {
       text-shadow: 4px 4px 0px #e11d48, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
@@ -47,7 +47,12 @@
       background-size: 112px 112px;
     }
     /* ===== 標題字：簡單白色黑體 ===== */
-    .logo-plain { font-family: 'Noto Sans TC', sans-serif; font-weight: 900; font-style: normal; color: #fff; letter-spacing: 0.04em; line-height: 1.12; text-align: center; display: inline-block; }
+    .logo-plain { font-family: 'Noto Serif TC', 'Noto Sans TC', serif; font-weight: 900; font-style: normal; color: #fff; letter-spacing: 0.02em; line-height: 1.05; display: inline-block; }
+    /* ===== 首頁字體系統：襯線粗黑標題 × 窄體英文 × 等寬資訊字 ===== */
+    .font-latin { font-family: 'Anton', 'Noto Sans TC', sans-serif; font-weight: 400; letter-spacing: 0.06em; }
+    .font-hud { font-family: 'Space Mono', ui-monospace, monospace; }
+    .outline-num { font-family: 'Anton', sans-serif; color: transparent; -webkit-text-stroke: 2px rgba(255,255,255,0.13); line-height: 0.8; letter-spacing: 0.02em; }
+    .track-dash { background-image: linear-gradient(90deg, rgba(255,255,255,0.55) 50%, transparent 50%); background-size: 28px 4px; background-repeat: repeat-x; height: 4px; }
     .qr-box svg { width: 100%; height: 100%; display: block; }
     .bulb-on-red { background: #ef4444; box-shadow: 0 0 10px 2px #ef4444; }
     .bulb-on-yellow { background: #facc15; box-shadow: 0 0 10px 2px #facc15; }
@@ -126,6 +131,13 @@
       const ready = players.filter(p => p.ready).length;
       return { light: ready === players.length ? 'green' : 'yellow', count: players.length, ready };
     };
+    // 組長判定（與手機端相同邏輯）
+    const resolveLeader = (members, currentUid) => {
+      const online = Object.entries(members || {}).filter(([, p]) => p && p.online);
+      if (currentUid && online.some(([id]) => id === currentUid)) return currentUid;
+      online.sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0) || (a[0] < b[0] ? -1 : 1));
+      return online.length ? online[0][0] : null;
+    };
     const playerUrl = (code) => {
       const u = new URL('mobile.html', location.href);
       u.search = `?room=${code}`;
@@ -135,7 +147,7 @@
     // ================= UI 元件 =================
     const F1CarSVG = ({ color = '#3b82f6' }) => (
       <svg viewBox="0 0 120 45" className="w-full h-full drop-shadow-md">
-        <g stroke="#000" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round">
+        <g stroke="#000" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round">
           <path d="M10,35 L110,35 L115,25 L105,25 Z" fill="#1e3a8a" />
           <path d="M5,15 L25,15 L25,25 L5,25 Z" fill="#e11d48" />
           <path d="M10,5 L15,5 L15,35 L10,35 Z" fill="#000" />
@@ -206,8 +218,9 @@
 
     const TitleBlock = ({ big }) => (
       <div className="text-center mb-8 z-10 flex flex-col items-center">
-        <div className="inline-block bg-[#facc15] border-4 border-black shadow-[5px_5px_0px_#000] px-5 py-1 mb-6">
-          <span className={`${big ? 'text-3xl' : 'text-2xl'} font-medium text-black tracking-wider`}>解鎖你的 2027 冠軍賽道</span>
+        <div className={`flex items-center gap-4 mb-4 text-white ${big ? 'text-3xl' : 'text-2xl'}`}>
+          <span className="inline-block h-[3px] w-[3em] bg-[#facc15]"></span>
+          <span className="font-medium tracking-[0.2em]">解鎖你的 2027 冠軍賽道</span>
         </div>
         <h1 className={big ? 'text-[128px]' : 'text-[72px]'}><LogoText>綠能方程式</LogoText></h1>
       </div>
@@ -268,6 +281,19 @@
           return () => clearTimeout(t);
         }
       }, [room, view, roomCode]);
+
+      // 組長備援：準備階段由主控端確保每組組長正確（手機端也會自行接手，兩邊結果一致）
+      useEffect(() => {
+        if (!room || !roomCode || room.meta?.status !== 'lobby') return;
+        const updates = {};
+        (room.tables || []).forEach(t => {
+          const key = teamKey(t);
+          const current = room.teams?.[key]?.leaderUid || null;
+          const desired = resolveLeader(room.players?.[key], current);
+          if (desired !== current) updates[`teams/${key}/leaderUid`] = desired;
+        });
+        if (Object.keys(updates).length) update(ref(db, `rooms/${roomCode}`), updates).catch(console.error);
+      }, [room, roomCode]);
 
       // 比賽正式開始（進入倒數）後，把本場桌號記錄為「已比賽」
       const roomStatus = room?.meta?.status;
@@ -361,20 +387,54 @@
 
           {view === 'loading' && <TitleBlock big />}
 
-          {/* ===== 遊戲首頁 ===== */}
+          {/* ===== 遊戲首頁（海報式排版）===== */}
           {view === 'home' && (
-            <div className="flex flex-col items-center z-10">
-              {/* 首頁元素依螢幕寬度等比放大（大螢幕投影用） */}
-              <div className="bg-[#facc15] border-black shadow-[6px_6px_0px_#000]" style={{ borderWidth: 'clamp(4px, 0.35vw, 7px)', padding: '0.2em 0.8em', fontSize: 'clamp(20px, min(2.8vw, 5vh), 60px)' }}>
-                <span className="font-medium text-black tracking-wider">解鎖你的 2027 冠軍賽道</span>
+            <div className="absolute inset-0 flex flex-col z-10 text-white">
+              {/* 上方資訊列 */}
+              <div className="flex items-center justify-between px-[4vw] pt-[4vh] font-hud font-bold tracking-[0.3em]" style={{ fontSize: 'clamp(12px, min(1vw, 1.8vh), 20px)' }}>
+                <div className="flex items-center gap-3"><span className="inline-block w-3 h-3 bg-[#e11d48] border-2 border-black"></span>TSRC RACING</div>
+                <div className="text-white/60">SEASON 2027</div>
+                <div className="tracking-normal">{serverBadge}</div>
               </div>
-              <h1 style={{ fontSize: 'clamp(72px, min(12.5vw, 21vh), 260px)', marginTop: '0.12em' }}><LogoText>綠能方程式</LogoText></h1>
-              <div style={{ width: 'clamp(240px, min(30vw, 50vh), 640px)', aspectRatio: '120 / 45', margin: 'clamp(12px, min(2vw, 3.5vh), 48px) 0' }}><F1CarSVG /></div>
-              <button onClick={() => { setSelected([]); setView('setup'); }} disabled={!user}
-                className={`${bigBtn(!!user)} !gap-[0.6em]`} style={{ fontSize: 'clamp(22px, min(2.8vw, 5vh), 60px)', padding: '0.45em 1.4em', borderWidth: 'clamp(4px, 0.35vw, 7px)' }}>
-                <span>◀</span> 開始遊戲 <span>▶</span>
-              </button>
-              <div className="scale-125 origin-top" style={{ marginTop: 'clamp(16px, 3.5vh, 40px)' }}>{serverBadge}</div>
+
+              {/* 主視覺 */}
+              <div className="flex-1 grid grid-cols-[1.1fr_1fr] items-center gap-[3vw] px-[6vw]">
+                <div className="flex flex-col items-start">
+                  <div className="flex items-center gap-4 mb-[2.5vh]" style={{ fontSize: 'clamp(16px, min(1.6vw, 3vh), 34px)' }}>
+                    <span className="inline-block h-[3px] w-[3em] bg-[#facc15]"></span>
+                    <span className="font-medium tracking-[0.2em]">解鎖你的 2027 冠軍賽道</span>
+                  </div>
+                  <h1 style={{ fontSize: 'clamp(84px, min(10.5vw, 19vh), 230px)' }}><LogoText>綠能<br />方程式</LogoText></h1>
+                  <div className="font-latin text-[#facc15] mt-[2vh]" style={{ fontSize: 'clamp(22px, min(2.4vw, 4.4vh), 52px)' }}>GREEN ENERGY FORMULA</div>
+                  <button onClick={() => { setSelected([]); setView('setup'); }} disabled={!user}
+                    className={`${bigBtn(!!user)} !gap-[0.6em] mt-[5vh]`} style={{ fontSize: 'clamp(22px, min(2.2vw, 4.2vh), 48px)', padding: '0.45em 1.4em', borderWidth: 'clamp(4px, 0.35vw, 7px)' }}>
+                    <span>◀</span> 開始遊戲 <span>▶</span>
+                  </button>
+                </div>
+
+                <div className="relative flex flex-col items-center justify-center">
+                  <div className="outline-num absolute select-none pointer-events-none" style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)' }}>2027</div>
+                  <div className="relative w-full" style={{ maxWidth: 'min(40vw, 72vh)' }}>
+                    <div className="w-full aspect-[120/45]"><F1CarSVG /></div>
+                    <div className="mt-[2vh] flex items-center gap-3 font-hud text-white/70 font-bold tracking-[0.25em]" style={{ fontSize: 'clamp(11px, min(0.9vw, 1.7vh), 18px)' }}>
+                      <span>START</span>
+                      <div className="flex-1 track-dash"></div>
+                      <span>FINISH</span>
+                      <div className="w-8 h-8 bg-white bg-checkerboard border-2 border-black shrink-0"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 下方流程 */}
+              <div className="mx-[4vw] mb-[4vh] grid grid-cols-3 border-t-2 border-white/30" style={{ fontSize: 'clamp(13px, min(1.1vw, 2vh), 24px)' }}>
+                {[['01', '選擇參賽桌號'], ['02', '手機掃碼加入'], ['03', '30 秒極速對決']].map(([n, t], i) => (
+                  <div key={n} className={`flex items-baseline gap-4 pt-[2vh] ${i ? 'pl-[2vw] border-l-2 border-white/30' : ''}`}>
+                    <span className="font-hud font-bold text-[#facc15]">{n}</span>
+                    <span className="font-medium tracking-[0.15em] text-white/90">{t}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
