@@ -530,7 +530,7 @@
       // 房間被刪除時回首頁
       useEffect(() => {
         if (view === 'room' && roomCode && room === null) {
-          const t = setTimeout(() => { get(ref(db, `rooms/${roomCode}/meta`)).then(s => { if (!s.exists()) leaveRoom(); }); }, 1500);
+          const t = setTimeout(() => { get(ref(db, `rooms/${roomCode}/meta`)).then(s => { if (!s.exists()) leaveRoom('home'); }); }, 1500);
           return () => clearTimeout(t);
         }
       }, [room, view, roomCode]);
@@ -727,19 +727,20 @@
         }
       };
 
-      const leaveRoom = () => {
+      // next：離開後要去的畫面（'home' 首頁／'setup' 選擇參賽桌號）
+      const leaveRoom = (next = 'home') => {
         store.del(HOST_STORAGE_KEY);
         setRoomCode(null);
         setRoom(null);
         setSelected([]);
-        setView('home');
+        setView(next);
       };
 
       // 緊急中止／取消房間：標記為關閉，手機端會自動退出
-      const closeRoom = async () => {
+      const closeRoom = async (next = 'home') => {
         try { await update(ref(db, `rooms/${roomCode}/meta`), { status: 'closed', closedAt: Date.now() }); }
         catch (err) { console.error(err); }
-        leaveRoom();
+        leaveRoom(next);
       };
 
       const serverBadge = (
@@ -951,7 +952,7 @@
 
               {room && status === 'lobby' && (
                 <div className="mt-8 flex items-center gap-6 z-10">
-                  <ConfirmButton onConfirm={closeRoom} confirmText="再按一次確認取消" className={dangerBtn}>取消房間・回首頁</ConfirmButton>
+                  <ConfirmButton onConfirm={() => closeRoom('home')} confirmText="再按一次確認取消" className={dangerBtn}>取消房間・回首頁</ConfirmButton>
                   <button onClick={startRace} disabled={!allGreen || !connected} data-testid="start-race" className={bigBtn(allGreen && connected)}>
                     <span>◀</span> {allGreen ? '開始比賽' : '全部綠燈後開放開始'} <span>▶</span>
                   </button>
@@ -1003,12 +1004,9 @@
                       ) : <p className="text-3xl font-black text-black">本場無人得分</p>}
                     </div>
                   )}
-                  {!aborted && top.length > 0 && (
-                    <p className="text-2xl font-black text-white bg-[#22c55e] border-4 border-black py-2 px-4 shadow-[4px_4px_0px_#000] mb-6">跑出命定奪冠路線！率先取得 2027 產線認證！</p>
-                  )}
                   <div className="flex justify-center gap-4">
                     <ConfirmButton onConfirm={resetRace} confirmText="再按一次確認重賽" className={ghostBtn} armedClass={BTN_ARMED_NEUTRAL}>同組重新比賽</ConfirmButton>
-                    <ConfirmButton onConfirm={closeRoom} confirmText="再按一次確認結束" className={dangerBtn}>結束房間・回首頁</ConfirmButton>
+                    <ConfirmButton onConfirm={() => closeRoom('setup')} confirmText="再按一次確認結束" className={dangerBtn}>結束本場・選擇下一輪</ConfirmButton>
                   </div>
                 </div>
               </div>
