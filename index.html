@@ -1334,7 +1334,7 @@
                     <div className={user ? 'hm-breath' : ''}>
                       <button onClick={startGame} disabled={!user}
                         className={`${bigBtn(!!user)} !gap-[0.6em]`} style={{ fontSize: 'clamp(22px, min(2.2vw, 4.2vh), 48px)', padding: '0.45em 1.4em', borderWidth: 'clamp(4px, 0.35vw, 7px)' }}>
-                        <span>◀</span> 開始遊戲 <span>▶</span>
+                        開始遊戲
                       </button>
                     </div>
                   </div>
@@ -1431,7 +1431,7 @@
                 </div>
               </RetroWindow>
               <button onClick={createRoom} disabled={!canCreate || busy || !user} className={`mt-8 ${bigBtn(canCreate && !busy && !!user)}`}>
-                <span>◀</span> {busy ? '建立中...' : canCreate ? `建立房間（${selected.length} 組）` : `至少選 ${MIN_TEAMS} 組`} <span>▶</span>
+                {busy ? '建立中...' : canCreate ? `建立房間（${selected.length} 組）` : `至少選 ${MIN_TEAMS} 組`}
               </button>
             </FitStage>
           )}
@@ -1524,7 +1524,7 @@
                 <div className="mt-8 flex items-center gap-6 z-10">
                   <ConfirmButton onConfirm={() => closeRoom('setup', true)} confirmText="再按一次確認取消" className={dangerBtn}>取消房間・回到選桌</ConfirmButton>
                   <button onClick={startRace} disabled={!allGreen || !connected} data-testid="start-race" className={bigBtn(allGreen && connected)}>
-                    <span>◀</span> {allGreen ? '開始比賽' : '全部綠燈後開放開始'} <span>▶</span>
+                    {allGreen ? '開始比賽' : '全部綠燈後開放開始'}
                   </button>
                 </div>
               )}
