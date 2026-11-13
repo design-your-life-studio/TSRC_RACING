@@ -186,6 +186,8 @@
     @keyframes iceIn { 0% { opacity: 0; transform: scale(1.06); } 10% { opacity: 1; transform: scale(1); } 82% { opacity: 1; } 100% { opacity: 0; } }
     @keyframes iceText { from { transform: translate(-50%, -50%) scale(.3); } 60% { transform: translate(-50%, -50%) scale(1.15); } to { transform: translate(-50%, -50%) scale(1); } }
     @keyframes iceShiver { to { margin-left: 2px; } }
+    @keyframes shakePhone { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-16deg); } 40% { transform: rotate(14deg); } 60% { transform: rotate(-10deg); } 80% { transform: rotate(8deg); } }
+    .shake-phone { animation: shakePhone .7s ease-in-out infinite; transform-origin: 50% 80%; }
     @keyframes hzFeed { from { transform: translateX(-24px); opacity: 0; } }
     @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
     @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
@@ -248,10 +250,18 @@
     const roomTarget = (meta) => Number(meta?.target) || TARGET_SCORE;
     const roomDuration = (meta) => Number(meta?.duration) || RACE_DURATION;
     const SETTINGS_STORAGE_KEY = 'tsrc_game_settings';
+    // 遊玩模式：tap = 眼明手快（點擊泡泡）；shake = 搖搖衝刺（搖晃手機，每搖一下 +10）
+    const MODE_OPTIONS = [
+      { id: 'tap', name: '眼明手快', desc: '點擊泡泡累積積分' },
+      { id: 'shake', name: '搖搖衝刺', desc: '搖晃手機，每搖一下 +10' },
+    ];
+    const MODE_IDS = MODE_OPTIONS.map(m => m.id);
+    const roomMode = (meta) => (meta && meta.mode === 'shake') ? 'shake' : 'tap';
+    const modeName = (mode) => (MODE_OPTIONS.find(m => m.id === mode) || MODE_OPTIONS[0]).name;
     const loadSettings = () => {
       try { const v = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
-        return { target: TARGET_OPTIONS.includes(v.target) ? v.target : TARGET_SCORE, duration: DURATION_OPTIONS.includes(v.duration) ? v.duration : RACE_DURATION }; }
-      catch (e) { return { target: TARGET_SCORE, duration: RACE_DURATION }; }
+        return { mode: MODE_IDS.includes(v.mode) ? v.mode : 'tap', target: TARGET_OPTIONS.includes(v.target) ? v.target : TARGET_SCORE, duration: DURATION_OPTIONS.includes(v.duration) ? v.duration : RACE_DURATION }; }
+      catch (e) { return { mode: 'tap', target: TARGET_SCORE, duration: RACE_DURATION }; }
     };
     const COUNTDOWN_MS = 3000;   // 3、2、1 倒數；之後顯示 GO 並正式開賽
     const FINISH_GRACE_MS = 1200;  // 時間到後，等手機最後一次回傳分數的緩衝
@@ -324,7 +334,7 @@
         room: code,
         finishedAt: Number(room.meta.finishedAt) || Date.now(),
         reason: room.meta.endReason,
-        target: roomTarget(room.meta), duration: roomDuration(room.meta),
+        target: roomTarget(room.meta), duration: roomDuration(room.meta), mode: roomMode(room.meta),
         teams: ranking.map(r => {
           const key = teamKey(r.table);
           const leader = room.teams?.[key]?.leaderUid;
@@ -709,7 +719,7 @@ const ICE_SVG = HAZ_SVG(`
                   <>
                     <div className="flex items-baseline justify-between mb-4">
                       <div className="font-black text-black text-2xl">{sel === 'all' ? '全部組別總排行' : `第 ${raceNo.get(sel)} 場成績`}</div>
-                      {current && <div className="font-bold text-gray-600">房號 {current.room}・{hhmm(current.finishedAt)} 結束・{endReasonText(current.reason, current.target, current.duration)}</div>}
+                      {current && <div className="font-bold text-gray-600">房號 {current.room}・{modeName(current.mode)}・{hhmm(current.finishedAt)} 結束・{endReasonText(current.reason, current.target, current.duration)}</div>}
                     </div>
                     <div className="grid grid-cols-[64px_96px_80px_1fr_120px_120px] items-center gap-3 px-3 pb-2 border-b-4 border-black font-black text-sm text-gray-600">
                       <span>名次</span><span>桌號</span><span>賽車</span><span>{sel === 'all' ? '場次' : '成員'}</span><span className="text-right">總分</span><span></span>
@@ -787,6 +797,22 @@ const ICE_SVG = HAZ_SVG(`
           <div data-testid="settings-modal" onClick={e => e.stopPropagation()} className="w-full max-w-xl">
             <RetroWindow title="Game_Settings.exe">
               <div className="p-6 bg-white">
+                <div className="mb-6">
+                  <div className="font-black text-black text-xl">遊玩模式</div>
+                  <div className="font-bold text-gray-500 text-sm mb-3">選擇這一場比賽手機上的玩法</div>
+                  <div className="flex gap-3">
+                    {MODE_OPTIONS.map(m => {
+                      const on = settings.mode === m.id;
+                      return (
+                        <button key={m.id} data-setting={`mode-${m.id}`} aria-pressed={on} onClick={() => onChange({ mode: m.id })}
+                          className={`flex-1 px-4 py-3 border-4 border-black text-left transition-all ${on ? `${SEL_ON} translate-x-[4px] translate-y-[4px] shadow-none` : `bg-white text-black shadow-[4px_4px_0px_#000] ${SEL_HOVER}`}`}>
+                          <div className="font-black text-xl leading-tight">{m.name}</div>
+                          <div className={`font-bold text-sm mt-1 ${on ? 'opacity-80' : 'text-gray-500'}`}>{m.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {row('目標分數', '任一組先達到這個分數，比賽立即結束', TARGET_OPTIONS, settings.target, ' 分', 'target')}
                 {row('比賽秒數', '時間到還沒有隊伍達標，就以分數最高的隊伍獲勝', DURATION_OPTIONS, settings.duration, ' 秒', 'duration')}
                 <div className="font-bold text-gray-500 text-sm">設定會記在這台電腦，下一個建立的房間開始套用</div>
@@ -1182,6 +1208,7 @@ const ICE_SVG = HAZ_SVG(`
       const status = room?.meta?.status || 'lobby';
       const win = raceWindow(room?.meta);
       const target = roomTarget(room?.meta);
+      const mode = roomMode(room?.meta);
       const duration = roomDuration(room?.meta);
       const targetRef = useRef(target); targetRef.current = target;
       const sums = useMemo(() => teamSums(room), [room]);
@@ -1462,7 +1489,7 @@ const ICE_SVG = HAZ_SVG(`
           let code = null;
           for (let i = 0; i < 20 && !code; i++) {
             const candidate = String(100000 + Math.floor(Math.random() * 900000));
-            const data = { meta: { hostUid: user.uid, createdAt: Date.now(), status: 'lobby', target: settings.target, duration: settings.duration }, tables, teams };
+            const data = { meta: { hostUid: user.uid, createdAt: Date.now(), status: 'lobby', mode: settings.mode, target: settings.target, duration: settings.duration }, tables, teams };
             const res = await runTransaction(ref(db, `rooms/${candidate}`), cur => (cur === null ? data : undefined));
             if (res.committed) code = candidate;
           }
@@ -1683,7 +1710,10 @@ const ICE_SVG = HAZ_SVG(`
                   {/* 左：房號 + QR Code */}
                   {status !== 'lobby' ? (
                     <div className="w-80 shrink-0 bg-[#facc15] border-4 border-black rounded-xl shadow-[12px_12px_0px_#000] p-5 flex flex-col items-center">
-                      <div className="font-black text-black text-xl">{{ countdown: '準備起跑', racing: '比賽進行中', finished: '比賽結束', aborted: '比賽已中止' }[status]}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-black text-black text-xl">{{ countdown: '準備起跑', racing: '比賽進行中', finished: '比賽結束', aborted: '比賽已中止' }[status]}</div>
+                        <div data-testid="race-mode" className="bg-black text-[#facc15] font-black text-sm px-2 py-0.5">{modeName(mode)}</div>
+                      </div>
                       <div className="mt-4 font-hud font-bold text-black/70 tracking-[0.3em] text-sm">TIME LEFT</div>
                       <div data-testid="race-timer" className={`font-latin text-[120px] leading-none mt-1 ${status === 'racing' && win && win.end - now <= 5000 ? 'text-[#e11d48] animate-pulse' : 'text-black'}`}>
                         {(() => {
@@ -1699,7 +1729,14 @@ const ICE_SVG = HAZ_SVG(`
                       <div data-testid="race-target" className="font-latin text-6xl text-black">{target}</div>
                       {/* 障礙物紀錄：最新的在最上面 */}
                       {/* 固定高度（剛好放 5 筆），倒數、比賽、結算時都保留這塊空間，視窗高度不會被撐開 */}
-                      {status !== 'lobby' && (
+                      {status !== 'lobby' && mode === 'shake' && (
+                        <div data-testid="shake-hint" className="w-full mt-4 mb-3 flex flex-col items-center justify-center gap-2 bg-white border-4 border-black shrink-0 text-black" style={{ height: HAZ_FEED_H - 12 }}>
+                          <svg className="shake-phone" width="44" height="64" viewBox="0 0 44 64" aria-hidden="true"><rect x="3" y="3" width="38" height="58" rx="7" fill="#facc15" stroke="#000" strokeWidth="4"/><rect x="9" y="11" width="26" height="36" fill="#38bdf8" stroke="#000" strokeWidth="3"/><circle cx="22" cy="53" r="3" fill="#000"/></svg>
+                          <div className="font-black text-lg">搖晃手機衝刺！</div>
+                          <div className="font-bold text-sm text-black/60">每搖一下 +10 分</div>
+                        </div>
+                      )}
+                      {status !== 'lobby' && mode !== 'shake' && (
                         <div data-testid="hazard-feed" className="w-full mt-4 flex flex-col gap-1.5 overflow-hidden shrink-0" style={{ height: HAZ_FEED_H }}>
                           <div className="font-black text-black text-sm border-b-4 border-black h-[22px] leading-[18px] shrink-0">障礙物紀錄</div>
                           {hazFeed.map(ev => (
@@ -1720,6 +1757,7 @@ const ICE_SVG = HAZ_SVG(`
                     <div data-testid="room-code" className="bg-black text-[#facc15] font-mono font-black text-5xl tracking-[0.2em] pl-[0.2em] px-3 py-2 border-4 border-black mb-5">{roomCode}</div>
                     <QRCodeBox text={playerUrl(roomCode)} />
                     <p className="mt-5 font-black text-black text-center leading-snug">手機掃描 QR Code<br />或輸入房間編號加入</p>
+                    <div data-testid="lobby-mode" className="mt-3 bg-black text-[#facc15] font-black px-3 py-1">模式：{modeName(mode)}</div>
                     <div className="mt-auto pt-5 w-full space-y-1 text-sm font-bold text-black">
                       <div className="flex items-center gap-2"><TrafficLight light="red" /> 尚無玩家</div>
                       <div className="flex items-center gap-2"><TrafficLight light="yellow" /> 等待全員準備</div>
