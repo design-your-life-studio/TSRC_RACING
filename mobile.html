@@ -514,6 +514,9 @@
               if (!m || m.status === 'closed') {
                 saveSession(null);
                 setRoomCode(null); setMyTable(null);
+                setCode('');   // 清空上一場的房號，直接輸入新的
+                // 網址上的 ?room= 也一併移除，避免重新整理後又帶入舊房號
+                if (new URLSearchParams(location.search).has('room')) history.replaceState(null, '', location.pathname);
                 setView('join');
                 setError('房間已被主控端關閉，請輸入新的房間編號');
                 return;
