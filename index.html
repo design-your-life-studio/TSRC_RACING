@@ -143,9 +143,21 @@
       .pg-enter > :nth-child(3) { animation: hmPop .45s cubic-bezier(.2,1.6,.4,1) .3s backwards; }
       .pg-enter [data-table] { animation: pgCell .28s ease-out backwards; animation-delay: calc(.2s + var(--c) * 22ms); }
       .pg-rise { animation: pgRise .45s cubic-bezier(.2,.8,.2,1) backwards; }
+      /* 比賽畫面切換（大廳 ⇄ 倒數／比賽）：標題收合、賽道區撐高、整體縮放同步平滑過渡 */
+      .race-title { transition: grid-template-rows .6s cubic-bezier(.4,0,.2,1), opacity .35s ease; }
+      .race-title.is-hidden { transition: grid-template-rows .6s cubic-bezier(.4,0,.2,1), opacity .25s ease; }
+      .race-lanes { transition: min-height .6s cubic-bezier(.4,0,.2,1); }
+      .fit-smooth { transition: transform .6s cubic-bezier(.4,0,.2,1); }
+      /* 離開房間（結束本場 → 選桌）：比賽畫面與結算卡淡出縮小，選桌頁接著進場 */
+      .room-exit { opacity: 0; transform: scale(.96); transition: opacity .38s ease-in, transform .38s ease-in; }
       /* 背景格紋：每一頁都持續往左流動 */
       .bg-flow { animation: bgFlow 2.4s linear infinite; will-change: transform; }
     }
+    /* 比賽中隱藏標題：用 grid 0fr 收合高度（不在 motion 區塊內，關閉動態時直接切換）*/
+    .race-title { display: grid; grid-template-rows: 1fr; }
+    .race-title > div { min-height: 0; overflow: hidden; }
+    .race-title.is-hidden { grid-template-rows: 0fr; opacity: 0; }
+    .room-exit { opacity: 0; pointer-events: none; }
     @keyframes pgRise { from { opacity: 0; transform: translateY(40px) scale(.97); } }
     @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
     @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
@@ -415,10 +427,13 @@
     const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
 
     // 畫面自動縮放：內容依固定設計寬度排版，再等比縮放到剛好放進視窗（電腦端永遠不需要捲動）
-    const FitStage = ({ width, className = '', children }) => {
+    const FitStage = ({ width, className = '', smooth = false, children }) => {
       const outer = useRef(null);
       const inner = useRef(null);
       const [scale, setScale] = useState(1);
+      // smooth：版面高度改變時縮放比例平滑過渡（首次定位不做動畫，避免進場時縮放跳動）
+      const [settled, setSettled] = useState(false);
+      useEffect(() => { const t = setTimeout(() => setSettled(true), 80); return () => clearTimeout(t); }, []);
       useLayoutEffect(() => {
         const fit = () => {
           const o = outer.current, i = inner.current;
@@ -434,7 +449,7 @@
       }, []);
       return (
         <div ref={outer} className="absolute inset-0 flex items-center justify-center overflow-hidden">
-          <div ref={inner} className={`flex flex-col items-center shrink-0 ${className}`} style={{ width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+          <div ref={inner} className={`flex flex-col items-center shrink-0 ${smooth && settled ? 'fit-smooth' : ''} ${className}`} style={{ width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
             {children}
           </div>
         </div>
@@ -445,7 +460,9 @@
 
     // ===== 首頁動態效果 =====
     const prefersReducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    const LAUNCH_MS = 520;   // 按下「開始遊戲」後，賽車衝出、首頁離場的時間（之後下一頁接著進場）
+    const LAUNCH_MS = 520;
+    const ROOM_EXIT_MS = 380;   // 離開房間回選桌：比賽畫面淡出的時間
+    const RACE_LANES_MIN_H = 10 * 40 + 9 * 14;   // 十條賽道（每條 40px、間距 14px）的高度   // 按下「開始遊戲」後，賽車衝出、首頁離場的時間（之後下一頁接著進場）
     // 背景格紋流動：所有圖層用同一個節奏（依目前時間對齊），疊在一起或換頁時都不會錯位
     const BG_FLOW_MS = 2400;
     const BgFlow = ({ className = '', style }) => {
@@ -1207,6 +1224,7 @@
       };
 
       // next：離開後要去的畫面（'home' 首頁／'setup' 選擇參賽桌號）
+      const [roomExit, setRoomExit] = useState(false);
       const leaveRoom = (next = 'home') => {
         store.del(HOST_STORAGE_KEY);
         setRoomCode(null);
@@ -1216,10 +1234,18 @@
       };
 
       // 緊急中止／取消房間：標記為關閉，手機端會自動退出
-      const closeRoom = async (next = 'home') => {
-        try { await update(ref(db, `rooms/${roomCode}/meta`), { status: 'closed', closedAt: Date.now() }); }
-        catch (err) { console.error(err); }
+      // keepTables：回到選桌畫面時保留這個房間原本選的桌號，方便直接修改後重新建立
+      const closeRoom = async (next = 'home', keepTables = false) => {
+        const tables = room?.tables || [];
+        const animate = !prefersReducedMotion();
+        if (animate) setRoomExit(true);   // 先讓比賽畫面淡出，再切到下一頁
+        await Promise.all([
+          update(ref(db, `rooms/${roomCode}/meta`), { status: 'closed', closedAt: Date.now() }).catch(err => console.error(err)),
+          animate ? new Promise(r => setTimeout(r, ROOM_EXIT_MS)) : null,
+        ]);
         leaveRoom(next);
+        if (keepTables) setSelected(tables);
+        setRoomExit(false);
       };
 
       const serverBadge = (
@@ -1397,8 +1423,9 @@
 
           {/* ===== 房間等待畫面 ===== */}
           {view === 'room' && (
-            <FitStage width={1360}>
-              <TitleBlock />
+            <FitStage width={1360} smooth className={roomExit ? 'room-exit' : ''}>
+              {/* 倒數與比賽中隱藏標題，讓賽道畫面放大（方案 D）*/}
+              <div className={`race-title ${room && status !== 'lobby' ? 'is-hidden' : ''}`}><div><TitleBlock /></div></div>
               {!room ? (
                 <div className="text-white font-black text-2xl animate-pulse">讀取房間中...</div>
               ) : (
@@ -1444,7 +1471,8 @@
                       <div className="absolute top-0 right-0 w-16 h-full bg-checkerboard border-l-4 border-black z-0"></div>
                       <div className="absolute top-0 right-16 w-4 h-full bg-[#e11d48] border-l-4 border-black z-0"></div>
 
-                      <div className="relative z-10 flex flex-col gap-[14px]">
+                      {/* 倒數與比賽中：賽道區固定保留十隊的高度，不論幾隊畫面大小都一致 */}
+                      <div className="race-lanes relative z-10 flex flex-col gap-[14px]" style={{ minHeight: room && status !== 'lobby' ? RACE_LANES_MIN_H : 0 }}>
                         {(room.tables || []).map(t => {
                           const st = teamStatus(room, t);
                           const color = colorHex(room.teams?.[teamKey(t)]?.color);
@@ -1481,7 +1509,7 @@
 
               {room && status === 'lobby' && (
                 <div className="mt-8 flex items-center gap-6 z-10">
-                  <ConfirmButton onConfirm={() => closeRoom('home')} confirmText="再按一次確認取消" className={dangerBtn}>取消房間・回首頁</ConfirmButton>
+                  <ConfirmButton onConfirm={() => closeRoom('setup', true)} confirmText="再按一次確認取消" className={dangerBtn}>取消房間・回到選桌</ConfirmButton>
                   <button onClick={startRace} disabled={!allGreen || !connected} data-testid="start-race" className={bigBtn(allGreen && connected)}>
                     <span>◀</span> {allGreen ? '開始比賽' : '全部綠燈後開放開始'} <span>▶</span>
                   </button>
@@ -1515,7 +1543,7 @@
             const top = ranking.filter(r => r.rank === 1 && r.score > 0);
             const aborted = status === 'aborted';
             return (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className={`absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${roomExit ? 'room-exit' : ''}`}>
                 <div data-testid="result-card" className="bg-[#facc15] border-8 border-black p-10 max-w-2xl w-full text-center shadow-[16px_16px_0px_#e11d48]">
                   {aborted ? (
                     <h2 className="font-winner text-7xl text-black mb-4">STOPPED</h2>
