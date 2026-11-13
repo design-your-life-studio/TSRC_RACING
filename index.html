@@ -122,6 +122,8 @@
       .hm-live .hm-car svg { animation: hmIdle .14s steps(2) infinite alternate; }
       .hm-live .hm-speed { display: block; }
       .hm-live .hm-speed i { animation: hmStreak .6s linear infinite; }
+      .hm-live .hm-speed.sp-stripe i { animation: hmStripe .45s linear infinite; }
+      .hm-launch .hm-speed.sp-stripe i, .hm-car.race-out .hm-speed.sp-stripe i { animation-duration: .25s; }
       .hm-live .track-dash { animation: hmDash .5s linear infinite; }
       /* 比賽中行駛的車子：輪子轉動（比首頁快，有衝刺感）*/
       .race-wheels .wheel { transform-box: fill-box; transform-origin: center; animation: hmSpin .28s linear infinite; }
@@ -174,6 +176,10 @@
     @keyframes hmPop { 0% { opacity: 0; transform: scale(.4); } 100% { opacity: 1; transform: scale(1); } }
     @keyframes hmSpin { to { transform: rotate(360deg); } }   /* 車頭朝右往前開：輪子順時針轉 */
     @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+    /* 速度感 04：黃、白、紅三條賽車線，從車尾往後拉長 */
+    .hm-speed.sp-stripe { top: 30%; left: -36%; width: 40%; height: 46%; }
+    .hm-speed.sp-stripe i { left: auto; right: 0; height: 22%; border-radius: 0 999px 999px 0; background: none; }
+    @keyframes hmStripe { 0% { width: 0; opacity: 1; } 70% { opacity: 1; } 100% { width: 100%; opacity: 0; } }
     @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
     @keyframes hmDash { to { background-position: -28px 0; } }
     @keyframes hmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
@@ -1347,7 +1353,7 @@
                       <div className="outline-num hm-num hm-fadeout absolute select-none pointer-events-none whitespace-nowrap"
                         style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>2027</div>
                       <div ref={homeCarRef} className="hm-car relative w-full aspect-[120/45]">
-                        <div className="hm-speed"><i style={{ top: '8%', width: '90%' }}></i><i style={{ top: '38%', width: '70%', animationDelay: '.2s' }}></i><i style={{ top: '66%', width: '100%', animationDelay: '.1s' }}></i><i style={{ top: '92%', width: '60%', animationDelay: '.35s' }}></i></div>
+                        <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
                         <F1CarSVG color={CAR_COLORS[homeCarColor].hex} />
                       </div>
                     </div>
