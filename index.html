@@ -1314,7 +1314,8 @@ const ICE_SVG = HAZ_SVG(`
       // 首頁進場：標題逐字蓋章、賽車開進來、按鈕彈出
       useEffect(() => {
         if (!homeIntro || launching) return;
-        const ts = [0, 1, 2, 3, 4].map(i => setTimeout(() => Sound.sfx('taiko', i), 550 + i * 90));
+        // 標題「綠能方程式」逐字出現：不播音效
+        const ts = [];
         ts.push(setTimeout(() => Sound.sfx('carIn'), 600), setTimeout(() => Sound.sfx('popIn'), 1420));
         return () => ts.forEach(clearTimeout);
       }, [homeIntro]);
