@@ -299,11 +299,12 @@
         <circle cx="25" cy="30" r="12" /><circle cx="90" cy="30" r="12" />
       </>
     );
-    const F1CarSVG = ({ color = '#3b82f6', outline = true }) => (
-      <svg viewBox="0 0 120 45" className="w-full h-full" style={{ overflow: 'visible' }}>
+    // outline：加白色描邊＋斜下方黑影（貼紙風格），用在首頁與手機選色預覽；比賽賽道上不加
+    const F1CarSVG = ({ color = '#3b82f6', outline = false }) => (
+      <svg viewBox="0 0 120 45" className={`w-full h-full ${outline ? '' : 'drop-shadow-md'}`} style={outline ? { overflow: 'visible' } : undefined}>
         {outline && (
           <g strokeLinejoin="round" strokeLinecap="round">
-            {/* 斜下方黑影 → 白色描邊（直接畫在 SVG 裡，不用 CSS 濾鏡，動畫不會變慢）*/}
+            {/* 直接畫在 SVG 裡（不用 CSS 濾鏡），動畫不會變慢 */}
             <g transform="translate(2.4 2.8)" fill="#000" stroke="#000" strokeWidth="4.4" opacity="0.45">{CAR_SILHOUETTE}</g>
             <g fill="#fff" stroke="#fff" strokeWidth="4.4">{CAR_SILHOUETTE}</g>
           </g>
@@ -529,6 +530,8 @@
       const offsetRef = useRef(0);
       const scoreRef = useRef(0);       // 本場個人累積分數（本機）
       const sentRef = useRef(0);        // 已成功寫入資料庫的分數
+      const hitsRef = useRef({ hb: 0, hc: 0 });       // 自己踩到障礙物的次數
+      const sentHitsRef = useRef({ hb: 0, hc: 0 });   // 已送出的次數
       const inflightRef = useRef(false);
       const raceKeyRef = useRef(null);
       const idRef = useRef(0);
@@ -647,8 +650,13 @@
         if (!countdownAt || !myKey || !uid || raceKeyRef.current === countdownAt) return;
         raceKeyRef.current = countdownAt;
         scoreRef.current = 0; sentRef.current = 0; setMyScore(0);
+        hitsRef.current = { hb: 0, hc: 0 }; sentHitsRef.current = { hb: 0, hc: 0 };
         get(ref(db, `${roomPath}/scores/${myKey}/${uid}`)).then(snap => {
           const v = Number(snap.val()?.s) || 0;
+          // 重新整理後接續：障礙物次數只能增加，所以以伺服器上的次數為起點
+          const hb = Number(snap.val()?.hb) || 0, hc = Number(snap.val()?.hc) || 0;
+          hitsRef.current = { hb: Math.max(hitsRef.current.hb, hb), hc: Math.max(hitsRef.current.hc, hc) };
+          sentHitsRef.current = { hb: Math.max(sentHitsRef.current.hb, hb), hc: Math.max(sentHitsRef.current.hc, hc) };
           if (v > sentRef.current) { sentRef.current = v; scoreRef.current = Math.max(scoreRef.current, v); setMyScore(scoreRef.current); }
         }).catch(() => {});
       }, [countdownAt, myKey, uid]);
@@ -657,11 +665,15 @@
       useEffect(() => {
         if (status !== 'racing' || !myKey || !uid) return;
         const flush = () => {
-          if (inflightRef.current || scoreRef.current === sentRef.current) return;
+          const h = hitsRef.current, sh = sentHitsRef.current;
+          const hitsChanged = h.hb !== sh.hb || h.hc !== sh.hc;
+          if (inflightRef.current || (scoreRef.current === sentRef.current && !hitsChanged)) return;
           const next = scoreRef.current > sentRef.current ? Math.min(scoreRef.current, sentRef.current + MAX_STEP) : scoreRef.current;
+          // 障礙物次數（hb 香蕉皮、hc 三角錐）：讓大螢幕知道踩到了什麼；每次最多 +10
+          const hits = { hb: Math.min(h.hb, sh.hb + 10), hc: Math.min(h.hc, sh.hc + 10) };
           inflightRef.current = true;
-          set(ref(db, `${roomPath}/scores/${myKey}/${uid}`), { s: next, t: serverTimestamp() })
-            .then(() => { sentRef.current = next; })
+          set(ref(db, `${roomPath}/scores/${myKey}/${uid}`), { s: next, t: serverTimestamp(), ...hits })
+            .then(() => { sentRef.current = next; sentHitsRef.current = hits; })
             .catch(err => console.warn('分數回傳失敗', err?.code || err))
             .finally(() => { inflightRef.current = false; });
         };
@@ -697,6 +709,7 @@
         setMyScore(scoreRef.current);
         if (pts < 0) {   // 扣分：畫面閃紅光並晃一下
           setHit(h => h + 1);
+          if (bubble.hazard === 'banana') hitsRef.current.hb++; else hitsRef.current.hc++;
           const el = raceAreaRef.current;
           if (el) { el.classList.remove('m-shake'); void el.offsetWidth; el.classList.add('m-shake'); }
         }
@@ -956,7 +969,7 @@
                   <div className="outline-num hm-num hm-fadeout absolute right-[-8px] top-[-34px] text-[120px] select-none pointer-events-none">2027</div>
                   <div ref={homeCarRef} className="hm-car relative w-full max-w-[320px] aspect-[120/45]">
                     <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
-                    <F1CarSVG color={CAR_COLORS[homeCarColor].hex} />
+                    <F1CarSVG color={CAR_COLORS[homeCarColor].hex} outline />
                   </div>
                   <div className="hm-track hm-fadeout mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
                     <span>START</span><div className="flex-1 track-dash"></div><span>FINISH</span>
@@ -1051,9 +1064,10 @@
                 </div>
 
                 {/* 賽車預覽 */}
-                <div className="bg-[#38bdf8] border-4 border-black retro-shadow p-4 flex flex-col items-center">
-                  <div className="w-full max-w-[260px] aspect-[120/45]"><F1CarSVG color={myColor.hex} /></div>
-                  <div data-testid="my-color" className="mt-2 bg-white border-2 border-black px-3 py-0.5 font-black">{myColor.name}</div>
+                {/* 不加底色，直接露出背景網格；賽車加白色描邊＋黑影確保每種顏色都看得清楚 */}
+                <div className="p-4 flex flex-col items-center">
+                  <div className="w-full max-w-[260px] aspect-[120/45]"><F1CarSVG color={myColor.hex} outline /></div>
+                  <div data-testid="my-color" className="mt-3 bg-white border-2 border-black px-3 py-0.5 font-black shadow-[3px_3px_0_#000]">{myColor.name}</div>
                 </div>
 
                 {/* 顏色：只有隊長可以改 */}
