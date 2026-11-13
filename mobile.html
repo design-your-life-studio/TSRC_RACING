@@ -78,6 +78,7 @@
       .hm-live .hm-car svg { animation: hmIdle .14s steps(2) infinite alternate; }
       .hm-live .hm-speed { display: block; }
       .hm-live .hm-speed i { animation: hmStreak .6s linear infinite; }
+      .hm-live .hm-speed.sp-stripe i { animation: hmStripe .45s linear infinite; }
       .hm-live .track-dash { animation: hmDash .5s linear infinite; }
       .hm-live .hm-breath { animation: hmBreath 1.6s ease-in-out infinite; }
       /* 3. 起跑燈循環：綠燈出發 → 從另一側開回來 */
@@ -86,6 +87,7 @@
       /* 4. 按下「開始遊戲」：賽車衝出畫面 */
       .hm-launch .hm-car { animation: hmLaunch .55s cubic-bezier(.6,0,.9,.4) forwards !important; }
       .hm-launch .hm-speed i, .hm-car.race-out .hm-speed i { animation-duration: .25s; }
+      .hm-launch .hm-speed.sp-stripe i, .hm-car.race-out .hm-speed.sp-stripe i { animation-duration: .25s; }
       /* 離場：文字往左滑出、其他元素淡出，下一頁緊接著進場 */
       .hm-launch .hm-exit { opacity: 0; transform: translateX(-5vw); transition: opacity .36s ease-in, transform .36s ease-in; }
       .hm-launch .hm-fadeout { opacity: 0; transition: opacity .3s ease-in; }
@@ -115,6 +117,10 @@
     @keyframes hmPop { 0% { opacity: 0; transform: scale(.4); } 100% { opacity: 1; transform: scale(1); } }
     @keyframes hmSpin { to { transform: rotate(360deg); } }   /* 車頭朝右往前開：輪子順時針轉 */
     @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+    /* 速度感 04：黃、白、紅三條賽車線，從車尾往後拉長（與電腦端相同）*/
+    .hm-speed.sp-stripe { top: 30%; left: -36%; width: 40%; height: 46%; }
+    .hm-speed.sp-stripe i { left: auto; right: 0; height: 22%; border-radius: 0 999px 999px 0; background: none; }
+    @keyframes hmStripe { 0% { width: 0; opacity: 1; } 70% { opacity: 1; } 100% { width: 100%; opacity: 0; } }
     @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
     @keyframes hmDash { to { background-position: -18px 0; } }
     @keyframes hmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
@@ -465,6 +471,26 @@
       }, []);
       // 按下「開始遊戲」：賽車衝出畫面後再切到輸入房號畫面
       const [launching, setLaunching] = useState(false);
+      // 首頁賽車循環（與電腦端相同節奏，但手機不顯示紅綠燈）：每 8.1 秒衝出畫面一次，1.4 秒後從左側開回來
+      const homeCarRef = useRef(null);
+      const homeLive = view === 'home' && splash !== 'show';
+      useEffect(() => {
+        if (!homeLive || prefersReducedMotion()) return;
+        const RED_GAP = 700, HOLD_MS = 500, GREEN_MS = 1400, CYCLE_MS = 8100;
+        const GO_AT = RED_GAP * 4 + HOLD_MS;
+        let timers = [];
+        const move = (st) => {
+          const car = homeCarRef.current;
+          if (!car || car.closest('.hm-launch')) return;
+          if (st === 'go') { car.classList.remove('race-in'); void car.offsetWidth; car.classList.add('race-out'); }
+          else { car.classList.remove('race-out'); void car.offsetWidth; car.classList.add('race-in'); }
+        };
+        const cycle = () => {
+          timers = [setTimeout(() => move('go'), GO_AT), setTimeout(() => move('back'), GO_AT + GREEN_MS), setTimeout(cycle, CYCLE_MS)];
+        };
+        const t0 = setTimeout(cycle, 2200 + RED_GAP);   // 等進場動畫結束再開始
+        return () => { clearTimeout(t0); timers.forEach(clearTimeout); };
+      }, [homeLive]);
       const startGame = () => {
         if (launching) return;
         setError('');
@@ -911,8 +937,8 @@
 
                 <div className="relative mt-8 mb-8">
                   <div className="outline-num hm-num hm-fadeout absolute right-[-8px] top-[-34px] text-[120px] select-none pointer-events-none">2027</div>
-                  <div className="hm-car relative w-full max-w-[320px] aspect-[120/45]">
-                    <div className="hm-speed"><i style={{ top: '8%', width: '90%' }}></i><i style={{ top: '38%', width: '70%', animationDelay: '.2s' }}></i><i style={{ top: '66%', width: '100%', animationDelay: '.1s' }}></i><i style={{ top: '92%', width: '60%', animationDelay: '.35s' }}></i></div>
+                  <div ref={homeCarRef} className="hm-car relative w-full max-w-[320px] aspect-[120/45]">
+                    <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
                     <F1CarSVG color="#e11d48" />
                   </div>
                   <div className="hm-track hm-fadeout mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
@@ -923,7 +949,7 @@
                 <div className="hm-fadeout"><div className="hm-pop w-full max-w-[220px] mx-auto">
                   <div className="hm-breath">
                     <button onClick={startGame} className={`${bigBtn('primary')} !py-3 !text-xl`}>
-                      ▶ 開始遊戲
+                      開始遊戲
                     </button>
                   </div>
                 </div></div>
