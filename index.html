@@ -54,6 +54,10 @@
     @import url('https://fonts.googleapis.com/css2?family=Dela+Gothic+One&text=%E7%B6%A0%E8%83%BD%E6%96%B9%E7%A8%8B%E5%BC%8F&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Anton&family=Bungee&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
     html, body { height: 100%; overflow: hidden; }
+    /* 不可選取文字、拖曳圖片；手機長按不跳出選單、點擊不出現灰色底色（輸入框除外）*/
+    html, body, #root { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+    input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+    img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
     html, body { background: #1e3a8a; }   /* 手機瀏海兩側的留白也是藍色 */
     /* 手機直拿：顯示「請將手機轉為橫向」 */
     #rotate-tip { display: none; }
@@ -171,6 +175,10 @@
   </style>
 </head>
 <body>
+  <script>
+    // 防止拖曳圖片／文字（輸入框除外）
+    document.addEventListener('dragstart', function (e) { if (!(e.target.closest && e.target.closest('input, textarea'))) e.preventDefault(); });
+  </script>
   <div id="rotate-tip" data-testid="rotate-tip"><div class="ph"></div><b>請將手機轉為橫向</b><span>主控端畫面為橫式設計<br>轉成橫向後會自動顯示</span></div>
   <div id="root"></div>
 
