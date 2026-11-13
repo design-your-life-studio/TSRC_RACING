@@ -473,6 +473,8 @@
       const [launching, setLaunching] = useState(false);
       // 首頁賽車循環（與電腦端相同節奏，但手機不顯示紅綠燈）：每 8.1 秒衝出畫面一次，1.4 秒後從左側開回來
       const homeCarRef = useRef(null);
+      // 首頁賽車顏色：一開始是賽道紅，每次開走再進場就換下一色（16 色循環，與電腦端相同）
+      const [homeCarColor, setHomeCarColor] = useState(() => Math.max(0, CAR_COLORS.findIndex(c => c.id === 'red')));
       const homeLive = view === 'home' && splash !== 'show';
       useEffect(() => {
         if (!homeLive || prefersReducedMotion()) return;
@@ -483,7 +485,7 @@
           const car = homeCarRef.current;
           if (!car || car.closest('.hm-launch')) return;
           if (st === 'go') { car.classList.remove('race-in'); void car.offsetWidth; car.classList.add('race-out'); }
-          else { car.classList.remove('race-out'); void car.offsetWidth; car.classList.add('race-in'); }
+          else { setHomeCarColor(i => (i + 1) % CAR_COLORS.length); car.classList.remove('race-out'); void car.offsetWidth; car.classList.add('race-in'); }
         };
         const cycle = () => {
           timers = [setTimeout(() => move('go'), GO_AT), setTimeout(() => move('back'), GO_AT + GREEN_MS), setTimeout(cycle, CYCLE_MS)];
@@ -939,7 +941,7 @@
                   <div className="outline-num hm-num hm-fadeout absolute right-[-8px] top-[-34px] text-[120px] select-none pointer-events-none">2027</div>
                   <div ref={homeCarRef} className="hm-car relative w-full max-w-[320px] aspect-[120/45]">
                     <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
-                    <F1CarSVG color="#e11d48" />
+                    <F1CarSVG color={CAR_COLORS[homeCarColor].hex} />
                   </div>
                   <div className="hm-track hm-fadeout mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
                     <span>START</span><div className="flex-1 track-dash"></div><span>FINISH</span>
