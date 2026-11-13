@@ -71,8 +71,8 @@
         <div class="meter" id="meter">
           <div class="fill" id="fill"></div>
           <div class="peakmark" id="peakmark" style="left:0"></div>
-          <div class="line" id="lowLine"><span id="lowTxt">回落 5</span></div>
-          <div class="line" id="highLine"><span id="highTxt">觸發 13</span></div>
+          <div class="line" id="lowLine"><span id="lowTxt">回落 4</span></div>
+          <div class="line" id="highLine"><span id="highTxt">觸發 10</span></div>
         </div>
         <div class="note">資料來源：<span class="tag" id="src">等待感測資料…</span></div>
       </div>
@@ -99,14 +99,14 @@
     <div class="win">
       <div class="bar"><i class="dot" style="background:#e11d48"></i><i class="dot" style="background:#facc15"></i><i class="dot" style="background:#22c55e"></i><b>SETTINGS.EXE</b></div>
       <div class="pad">
-        <div class="note">正式遊戲目前是「觸發 13、回落 5、一秒最多 8 下」。可以拖動試試其他門檻，找出最適合的數值再告訴我。</div>
+        <div class="note">正式遊戲目前是「觸發 10、回落 4、一秒最多 8 下」。可以拖動試試其他門檻，找出最適合的數值再告訴我。</div>
         <div class="slider">
-          <div class="top"><span>觸發門檻</span><span id="highVal">13</span></div>
-          <input type="range" id="high" min="6" max="30" step="1" value="13">
+          <div class="top"><span>觸發門檻</span><span id="highVal">10</span></div>
+          <input type="range" id="high" min="6" max="30" step="1" value="10">
         </div>
         <div class="slider">
-          <div class="top"><span>回落門檻</span><span id="lowVal">5</span></div>
-          <input type="range" id="low" min="1" max="12" step="1" value="5">
+          <div class="top"><span>回落門檻</span><span id="lowVal">4</span></div>
+          <input type="range" id="low" min="1" max="12" step="1" value="4">
         </div>
         <button class="btn ghost" id="defBtn" style="margin-top:12px">恢復正式遊戲設定</button>
         <p class="note" style="margin:12px 0 0" id="dev"></p>
@@ -116,7 +116,7 @@
 
 <script>
 (() => {
-  const DEF_HIGH = 13, DEF_LOW = 5, GAP_MS = 125, METER_MAX = 40;
+  const DEF_HIGH = 10, DEF_LOW = 4, GAP_MS = 125, METER_MAX = 40;
   let high = DEF_HIGH, low = DEF_LOW;
   let armed = true, last = 0, count = 0, maxAll = 0, curPeak = 0, peaks = [], got = false;
   let runUntil = 0, runStartCount = 0, runTimer = null;
