@@ -488,16 +488,22 @@
     };
 
     // 選桌／房間畫面上方標題：副標貼近標題、標題與下方視窗稍微靠近（間距方案 03）
-    const TitleBlock = ({ big }) => (
-      <div className="text-center mb-[22px] z-10 flex flex-col items-center">
-        <div className={`flex items-center gap-4 mb-[6px] text-white ${big ? 'text-3xl' : 'text-2xl'}`}>
-          <span className="inline-block h-[3px] w-[3em] bg-[#facc15]"></span>
-          <span className="font-medium tracking-[0.2em]">解鎖 2027 冠軍賽道</span>
+    // 黃線＋標語：整體寬度與「綠能方程式」相同
+    const TitleBlock = ({ big }) => {
+      const titleRef = useRef(null);
+      return (
+        <div className="text-center mb-[22px] z-10 flex flex-col items-center">
+          <FitWidthText targetRef={titleRef} className="mb-[6px]">
+            <span className="inline-flex items-center gap-[0.6em] text-white">
+              <span className="inline-block h-[0.1em] min-h-[3px] w-[3em] bg-[#facc15]"></span>
+              <span className="inline-block font-medium tracking-[0.2em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
+            </span>
+          </FitWidthText>
+          {/* 標題字本身上方有 0.085em 留白，這裡往上收 0.125em，實際為 -0.04em */}
+          <h1 className={big ? 'text-[128px]' : 'text-[72px]'} style={{ marginTop: '-0.125em' }}><LogoText><span ref={titleRef} className="inline-block">綠能方程式</span></LogoText></h1>
         </div>
-        {/* 標題字本身上方有 0.085em 留白，這裡往上收 0.125em，實際為 -0.04em */}
-        <h1 className={big ? 'text-[128px]' : 'text-[72px]'} style={{ marginTop: '-0.125em' }}><LogoText>綠能方程式</LogoText></h1>
-      </div>
-    );
+      );
+    };
 
     /* ================= 按鈕 UI 規範 v1（新增按鈕一律從這裡選樣式）=================
        顏色意義對應紅綠燈：
@@ -823,6 +829,7 @@
       const [view, setView] = useState('loading'); // loading | home | setup | room
       // 開場畫面：進入網頁時停留 3 秒再淡出（重新整理接回進行中的房間時略過，避免擋住比賽畫面）
       const formulaRef = useRef(null);   // 首頁「方程式」三個字（英文副標對齊用）
+      const splashTitleRef = useRef(null);   // 開場畫面「綠能方程式」（標語對齊用）
       const homeCarRef = useRef(null);   // 首頁賽車（起跑燈循環用）
       const lightsRef = useRef(null);    // 首頁 F1 起跑燈
       const [launching, setLaunching] = useState(false);
@@ -1248,11 +1255,14 @@
               style={{ opacity: splash === 'fade' ? 0 : 1, transition: `opacity ${SPLASH_FADE_MS}ms ease`, pointerEvents: splash === 'fade' ? 'none' : 'auto' }}>
               <BgFlow style={{ zIndex: -1 }} />
               <div className="flex flex-col items-center" style={{ fontSize: 'min(1vw, 1.8vh)' }}>
-                <div className="flex items-center gap-4 mb-[2.5vh] text-white" style={{ fontSize: 'clamp(18px, min(1.9vw, 3.4vh), 40px)' }}>
-                  <span className="inline-block h-[3px] w-[3em] bg-[#facc15]"></span>
-                  <span className="font-medium tracking-[0.2em]">解鎖 2027 冠軍賽道</span>
-                </div>
-                <h1 style={{ fontSize: 'clamp(80px, min(11vw, 20vh), 240px)' }}><LogoText>綠能方程式</LogoText></h1>
+                {/* 黃線＋標語：整體寬度與「綠能方程式」相同 */}
+                <FitWidthText targetRef={splashTitleRef} className="mb-[2.5vh]">
+                    <span className="inline-flex items-center gap-[0.6em] text-white">
+                      <span className="inline-block h-[0.1em] min-h-[3px] w-[3em] bg-[#facc15]"></span>
+                      <span className="inline-block font-medium tracking-[0.2em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
+                    </span>
+                  </FitWidthText>
+                <h1 style={{ fontSize: 'clamp(80px, min(11vw, 20vh), 240px)' }}><LogoText><span ref={splashTitleRef} className="inline-block">綠能方程式</span></LogoText></h1>
               </div>
             </div>
           )}
@@ -1274,7 +1284,7 @@
                   <FitWidthText targetRef={formulaRef} className="mb-[2.5vh]">
                     <span className="inline-flex items-center gap-[0.6em] text-white">
                       <span className="hm-bar inline-block h-[0.1em] min-h-[3px] w-[3em] bg-[#facc15]"></span>
-                      <span className="hm-tagtxt inline-block font-medium tracking-[0.2em] mr-[-0.2em]">解鎖 2027 冠軍賽道</span>
+                      <span className="hm-tagtxt inline-block font-medium tracking-[0.2em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
                     </span>
                   </FitWidthText>
                   <h1 className="hm-dim" style={{ fontSize: 'clamp(84px, min(10.5vw, 19vh), 230px)' }}><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
