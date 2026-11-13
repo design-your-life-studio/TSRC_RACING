@@ -147,6 +147,10 @@
       .pg-rise { animation: pgRise .45s cubic-bezier(.2,.8,.2,1) backwards; }
       .hz-pop { animation: hzPop 1.3s cubic-bezier(.2,1.5,.4,1) forwards; }
       .hz-item { animation: hzFeed .35s cubic-bezier(.2,1.4,.4,1); }
+      .ice-block { animation: iceIn 1.5s ease-out forwards; }
+      .ice-text { animation: iceText .45s cubic-bezier(.2,1.6,.4,1); }
+      .car-frozen { animation: iceShiver .08s steps(2) infinite; }
+      .car-frozen .wheel { animation-play-state: paused !important; }
       /* 比賽畫面切換（大廳 ⇄ 倒數／比賽）：標題收合、賽道區撐高、整體縮放同步平滑過渡 */
       .race-title { transition: grid-template-rows .6s cubic-bezier(.4,0,.2,1), opacity .35s ease; }
       .race-title.is-hidden { transition: grid-template-rows .6s cubic-bezier(.4,0,.2,1), opacity .25s ease; }
@@ -167,10 +171,21 @@
     .hz-ico svg { width: 100%; height: 100%; display: block; }
     .hz-pop b { font-family: 'Anton', sans-serif; font-size: 26px; line-height: 1; color: #e11d48; -webkit-text-stroke: 1.5px #000; paint-order: stroke fill; }
     .hz-item .hz-ico svg { filter: none !important; }
+    /* 冰凍：把賽車的冰塊拉長成一整條，封住整條進度條 */
+    .ice-block { position: absolute; inset: -6px -6px -6px -6px; z-index: 35; pointer-events: none; border-radius: 6px 999px 999px 6px;
+      background: rgba(186,230,253,.72); border: 4px solid #0c4a6e;
+      box-shadow: inset 5px 5px 0 rgba(255,255,255,.8), inset -4px -4px 0 rgba(125,211,252,.6), 4px 4px 0 #000; }
+    .ice-shine { position: absolute; left: 3%; top: 7px; width: 9%; height: 6px; background: #fff; border-radius: 4px; transform: rotate(-8deg); opacity: .95; }
+    .ice-shine-2 { left: 14%; width: 3%; }
+    .ice-text { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-family: 'Bungee', sans-serif; font-size: 26px; line-height: 1; color: #fff; -webkit-text-stroke: 2.5px #0c4a6e; paint-order: stroke fill; white-space: nowrap; }
+    .car-frozen svg { animation: none !important; }
     @keyframes pgRise { from { opacity: 0; transform: translateY(40px) scale(.97); } }
     @keyframes hzPop { 0% { transform: translate(-50%, 6px) scale(.2); opacity: 0; } 18% { transform: translate(-50%, -30px) scale(1.15); opacity: 1; }
       30% { transform: translate(-50%, -26px) scale(1) rotate(-6deg); } 40% { transform: translate(-50%, -26px) rotate(6deg); } 50% { transform: translate(-50%, -26px) rotate(0); }
       80% { opacity: 1; } 100% { transform: translate(-50%, -40px); opacity: 0; } }
+    @keyframes iceIn { 0% { opacity: 0; transform: scale(1.06); } 10% { opacity: 1; transform: scale(1); } 82% { opacity: 1; } 100% { opacity: 0; } }
+    @keyframes iceText { from { transform: translate(-50%, -50%) scale(.3); } 60% { transform: translate(-50%, -50%) scale(1.15); } to { transform: translate(-50%, -50%) scale(1); } }
+    @keyframes iceShiver { to { margin-left: 2px; } }
     @keyframes hzFeed { from { transform: translateX(-24px); opacity: 0; } }
     @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
     @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
@@ -376,7 +391,15 @@
       <path d="M29,8 Q32,4 35,8 L46,51 L18,51 Z" fill="#ff6a00"/>
       <path d="M27.7,20 L36.3,20 L38.4,28 L25.6,28 Z" fill="#fff"/>
       <path d="M23,36 L41,36 L43.2,44 L20.8,44 Z" fill="#fff"/>`);
-    const HAZARD_INFO = { banana: { name: '香蕉皮', pts: -10, svg: BANANA_SVG }, cone: { name: '三角錐', pts: -20, svg: CONE_SVG } };
+const ICE_SVG = HAZ_SVG(`
+  <path d="M14,22 L34,12 L54,22 L54,46 L34,56 L14,46 Z" fill="#bae6fd"/>
+  <path d="M14,22 L34,32 L54,22 L34,12 Z" fill="#e0f2fe"/>
+  <path d="M34,32 L34,56 L54,46 L54,22 Z" fill="#7dd3fc"/>
+  <path d="M20,26 L28,30" stroke="#fff" stroke-width="3"/>
+  <path d="M19,33 L19,40" stroke="#fff" stroke-width="3"/>
+  <path d="M42,36 L46,34 M44,42 L48,40" stroke="#e0f2fe" stroke-width="2.2"/>`);
+    const HAZARD_INFO = { banana: { name: '香蕉皮', pts: -10, svg: BANANA_SVG }, cone: { name: '三角錐', pts: -20, svg: CONE_SVG }, ice: { name: '冰凍', pts: 0, svg: ICE_SVG } };
+    const ICE_FX_MS = 1500;   // 大螢幕賽道冰凍特效時間（手機凍住 1 秒，大螢幕稍長讓觀眾看得到）
     const SCORE_RENDER_MS = 250;   // 大螢幕分數重繪節流：每 250ms 最多更新一次畫面
     const HAZ_FX_MS = 1300;   // 賽道上貼紙彈出的時間
     const HAZ_FEED_MAX = 5;   // 左側障礙物紀錄最多顯示幾筆
@@ -1101,8 +1124,10 @@
           const first = !seen.has(part);
           seen.add(part);
           if (part === 'scores' || part === 'tables') syncSums();
+          // 不在比賽中（結束、中止、準備）時分數不必節流：一律使用最新分數，確保結算與成績紀錄完全正確
+          if (part === 'meta' && latest.meta?.status !== 'racing') shownScores = latest.scores;
           if (part === 'scores') {
-            if (first) shownScores = latest.scores;
+            if (first || latest.meta?.status !== 'racing') shownScores = latest.scores;
             else {
               // 分數節流：250ms 內的多次變動合併成一次重繪（每秒最多 4 次）；其他區塊更新時也不會順便帶入新分數
               if (!scoreTimer) scoreTimer = setTimeout(() => { scoreTimer = null; shownScores = latest.scores; commit(); }, SCORE_RENDER_MS);
@@ -1162,6 +1187,7 @@
       // 踩到障礙物：比對每位玩家回傳的次數（hb 香蕉皮、hc 三角錐），有增加就在賽道彈出貼紙、左側加一筆紀錄
       const [hazFx, setHazFx] = useState([]);
       const [hazFeed, setHazFeed] = useState([]);
+      const [frozenLanes, setFrozenLanes] = useState({});   // 被冰凍中的隊伍（桌號 → 特效）
       const hazPrevRef = useRef({ key: null, map: {} });
       const hazIdRef = useRef(0);
       useEffect(() => {
@@ -1169,21 +1195,27 @@
         const key = `${roomCode}:${win?.countdownAt || 0}`;
         const cur = {};
         Object.entries(room.scores || {}).forEach(([tk, users]) => Object.entries(users || {}).forEach(([u, v]) => {
-          cur[`${tk}/${u}`] = { banana: Number(v?.hb) || 0, cone: Number(v?.hc) || 0 };
+          cur[`${tk}/${u}`] = { banana: Number(v?.hb) || 0, cone: Number(v?.hc) || 0, ice: Number(v?.hi) || 0 };
         }));
         const prev = hazPrevRef.current;
         hazPrevRef.current = { key, map: cur };
-        if (prev.key !== key) { setHazFx([]); setHazFeed([]); return; }   // 新的一場（或大螢幕剛重新整理）：只記錄起點
+        if (prev.key !== key) { setHazFx([]); setHazFeed([]); setFrozenLanes({}); return; }   // 新的一場（或大螢幕剛重新整理）：只記錄起點
         if (status !== 'racing') return;
         const events = [];
         Object.entries(cur).forEach(([k, c]) => {
-          const p = prev.map[k] || { banana: 0, cone: 0 };
+          const p = prev.map[k] || { banana: 0, cone: 0, ice: 0 };
           const table = Number(k.split('/')[0].slice(1));
-          ['banana', 'cone'].forEach(type => { for (let i = 0; i < Math.min(3, c[type] - p[type]); i++) events.push({ id: ++hazIdRef.current, table, type, delay: i * 180 }); });
+          ['banana', 'cone', 'ice'].forEach(type => { for (let i = 0; i < Math.min(3, c[type] - p[type]); i++) events.push({ id: ++hazIdRef.current, table, type, delay: i * 180 }); });
         });
         if (!events.length) return;
         setHazFeed(f => [...events.slice().reverse(), ...f].slice(0, HAZ_FEED_MAX));
         events.forEach(ev => setTimeout(() => {
+          if (ev.type === 'ice') {
+            // 冰凍：整條賽道被冰塊封住（同一隊連續被凍就延長）
+            setFrozenLanes(f => ({ ...f, [ev.table]: { id: ev.id, until: Date.now() + ICE_FX_MS } }));
+            setTimeout(() => setFrozenLanes(f => (f[ev.table]?.id === ev.id ? (({ [ev.table]: _, ...rest }) => rest)(f) : f)), ICE_FX_MS);
+            return;
+          }
           setHazFx(fx => [...fx, ev]);
           setTimeout(() => setHazFx(fx => fx.filter(x => x.id !== ev.id)), HAZ_FX_MS);
         }, ev.delay));
@@ -1659,7 +1691,7 @@
                               <span>#{pad2(ev.table)}</span>
                               <span className="hz-ico w-6 h-6 shrink-0" dangerouslySetInnerHTML={{ __html: HAZARD_INFO[ev.type].svg }} />
                               <span>{HAZARD_INFO[ev.type].name}</span>
-                              <span className="ml-auto text-[#e11d48]">{HAZARD_INFO[ev.type].pts}</span>
+                              <span className={`ml-auto ${ev.type === 'ice' ? 'text-[#0369a1]' : 'text-[#e11d48]'}`}>{ev.type === 'ice' ? '凍 1 秒' : HAZARD_INFO[ev.type].pts}</span>
                             </div>
                           ))}
                         </div>
@@ -1715,8 +1747,15 @@
                                     <b>{HAZARD_INFO[ev.type].pts}</b>
                                   </div>
                                 ))}
+                                {/* 冰凍：一整塊冰把整條進度條（含賽車）封住，FROZEN! 在冰塊正中間 */}
+                                {frozenLanes[t] && (
+                                  <div key={frozenLanes[t].id} data-frozen-lane={t} className="ice-block">
+                                    <span className="ice-shine"></span><span className="ice-shine ice-shine-2"></span>
+                                    <span className="ice-text">FROZEN!</span>
+                                  </div>
+                                )}
                                 {/* 比賽進行中、還沒到終點的車子輪子會轉動 */}
-                                <div className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ease-out ${status === 'racing' && val < 100 ? 'race-wheels' : ''}`} style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
+                                <div className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ease-out ${status === 'racing' && val < 100 ? 'race-wheels' : ''} ${frozenLanes[t] ? 'car-frozen' : ''}`} style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
                                   <F1CarSVG color={color} />
                                 </div>
                               </div>
