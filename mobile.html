@@ -169,6 +169,8 @@
     const { useState, useEffect, useRef, useLayoutEffect } = React;
 
     // ================= 遊戲設定（需與 index.html 一致）=================
+    const SPLASH_MS = 3000;        // 開場（載入）畫面停留時間（與大螢幕相同）
+    const SPLASH_FADE_MS = 700;    // 開場畫面淡出時間
     const POINTS_PER_BUBBLE = 10;   // 原始得分邏輯：戳破一顆 +10
     const TARGET_SCORE = 500;       // 任一組先到此分數，比賽立即結束
     const RACE_DURATION = 30;       // 比賽秒數
@@ -452,6 +454,15 @@
       const [error, setError] = useState('');
       const [pendingTable, setPendingTable] = useState(null);
       const formulaRef = useRef(null);   // 首頁「方程式」三個字（英文副標對齊用）
+      // 開場（載入）畫面：一進網頁先顯示 3 秒再淡出；重新整理接回房間時略過
+      const splashTitleRef = useRef(null);
+      const [splash, setSplash] = useState(() => (loadSession() ? 'off' : 'show'));
+      useEffect(() => {
+        if (splash !== 'show') return;
+        const t1 = setTimeout(() => setSplash('fade'), SPLASH_MS);
+        const t2 = setTimeout(() => setSplash('off'), SPLASH_MS + SPLASH_FADE_MS);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+      }, []);
       // 按下「開始遊戲」：賽車衝出畫面後再切到輸入房號畫面
       const [launching, setLaunching] = useState(false);
       const startGame = () => {
@@ -758,6 +769,24 @@
           {/* 背景格紋：每一頁持續流動 */}
           <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden"><BgFlow /></div>
 
+          {/* ===== 開場（載入）畫面 ===== */}
+          {splash !== 'off' && (
+            <div data-testid="splash" className="absolute inset-0 z-[80] bg-[#1e3a8a] flex items-center justify-center overflow-hidden"
+              style={{ opacity: splash === 'fade' ? 0 : 1, transition: `opacity ${SPLASH_FADE_MS}ms ease`, pointerEvents: splash === 'fade' ? 'none' : 'auto' }}>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden"><BgFlow /></div>
+              <div className="relative flex flex-col items-center">
+                {/* 黃線＋標語：整體寬度與「綠能方程式」相同 */}
+                <FitWidthText targetRef={splashTitleRef} className="mb-3">
+                  <span className="inline-flex items-center gap-[0.6em] text-white">
+                    <span className="inline-block h-[0.12em] min-h-[3px] w-[2.2em] bg-[#facc15]"></span>
+                    <span className="inline-block font-medium tracking-[0.18em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
+                  </span>
+                </FitWidthText>
+                <h1 style={{ fontSize: 'min(15vw, 9vh, 72px)' }}><LogoText><span ref={splashTitleRef} className="inline-block">綠能方程式</span></LogoText></h1>
+              </div>
+            </div>
+          )}
+
           {/* 頂部導覽列 */}
           <div className="w-full bg-white border-b-4 border-black p-3 flex justify-between items-center z-20 shrink-0 relative">
             <div className="flex gap-2">
@@ -862,7 +891,7 @@
 
             {/* ===== 手機首頁（海報式排版）===== */}
             {view === 'home' && (
-              <div className={`flex-1 flex flex-col px-6 pt-5 pb-6 text-white relative hm-live ${launching ? 'hm-launch' : 'hm-intro'}`}>
+              <div className={`flex-1 flex flex-col px-6 pt-5 pb-6 text-white relative hm-live ${launching ? 'hm-launch' : splash === 'show' ? '' : 'hm-intro'}`}>
                 <div className="flex justify-start items-center font-hud font-bold text-[11px] tracking-[0.25em]">
                   <span className="text-white/60 hm-season hm-fadeout">SEASON 2027</span>
                 </div>
@@ -873,7 +902,7 @@
                   <FitWidthText targetRef={formulaRef} className="mb-4">
                     <span className="inline-flex items-center gap-[0.6em] text-white">
                       <span className="hm-bar inline-block h-[0.12em] min-h-[3px] w-[2.2em] bg-[#facc15]"></span>
-                      <span className="hm-tagtxt inline-block font-medium tracking-[0.18em] mr-[-0.18em]">解鎖 2027 冠軍賽道</span>
+                      <span className="hm-tagtxt inline-block font-medium tracking-[0.18em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
                     </span>
                   </FitWidthText>
                   <h1 className="text-[78px]"><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
