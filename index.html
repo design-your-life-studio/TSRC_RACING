@@ -866,6 +866,8 @@
       }, []);
       // 首頁進場動畫：開場畫面開始淡出時播放
       const homeIntro = view === 'home' && splash !== 'show';
+      // 首頁賽車顏色：一開始是極速藍，每次開走再進場就換下一色（16 色循環）
+      const [homeCarColor, setHomeCarColor] = useState(() => CAR_COLORS.findIndex(c => c.id === 'blue'));
       // F1 起跑燈循環：紅燈依序亮 5 顆 → 全部變綠、賽車衝出畫面 → 熄燈、賽車從另一側開回來 → 休息
       useEffect(() => {
         if (!homeIntro || prefersReducedMotion()) return;
@@ -885,7 +887,7 @@
           const n = typeof st === 'number' ? st : 0;
           ls.forEach((l, i) => { l.classList.toggle('lit', i < n); l.classList.toggle('green', st === 'go'); });
           if (st === 'go') { car.classList.remove('race-in'); void car.offsetWidth; car.classList.add('race-out'); }
-          if (st === 'back') { car.classList.remove('race-out'); void car.offsetWidth; car.classList.add('race-in'); }
+          if (st === 'back') { setHomeCarColor(i => (i + 1) % CAR_COLORS.length); car.classList.remove('race-out'); void car.offsetWidth; car.classList.add('race-in'); }
           // 起跑燈音效（每一輪都有）：紅燈「嗶」→ 綠燈高音＋賽車衝刺離開 → 賽車開回來
           if (typeof st === 'number' && st > 0) Sound.sfx('redLight');
           if (st === 'go') { Sound.sfx('greenLight'); setTimeout(() => Sound.sfx('carDash'), 80); }
@@ -1346,7 +1348,7 @@
                         style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>2027</div>
                       <div ref={homeCarRef} className="hm-car relative w-full aspect-[120/45]">
                         <div className="hm-speed"><i style={{ top: '8%', width: '90%' }}></i><i style={{ top: '38%', width: '70%', animationDelay: '.2s' }}></i><i style={{ top: '66%', width: '100%', animationDelay: '.1s' }}></i><i style={{ top: '92%', width: '60%', animationDelay: '.35s' }}></i></div>
-                        <F1CarSVG />
+                        <F1CarSVG color={CAR_COLORS[homeCarColor].hex} />
                       </div>
                     </div>
                     {/* START／FINISH 賽道線：放在 2027 大字下方，不重疊 */}
