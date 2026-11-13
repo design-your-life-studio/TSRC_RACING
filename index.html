@@ -367,6 +367,7 @@
     const HAZARD_INFO = { banana: { name: '香蕉皮', pts: -10, svg: BANANA_SVG }, cone: { name: '三角錐', pts: -20, svg: CONE_SVG } };
     const HAZ_FX_MS = 1300;   // 賽道上貼紙彈出的時間
     const HAZ_FEED_MAX = 5;   // 左側障礙物紀錄最多顯示幾筆
+    const HAZ_FEED_H = 28 + 5 * 32 + 5 * 6;   // 標題 28px＋5 筆（每筆 32px、間距 6px）的固定高度
     const END_REASON_TEXT = { target: `率先達到 ${TARGET_SCORE} 分`, timeout: `${RACE_DURATION} 秒時間到`, aborted: '工作人員緊急中止' };
 
     const playerUrl = (code) => {
@@ -1542,11 +1543,12 @@
                       <div className="font-black text-black text-lg">目標分數</div>
                       <div className="font-latin text-6xl text-black">{TARGET_SCORE}</div>
                       {/* 障礙物紀錄：最新的在最上面 */}
-                      {(status === 'racing' || hazFeed.length > 0) && (
-                        <div data-testid="hazard-feed" className="w-full mt-4 flex flex-col gap-1.5 min-h-0 overflow-hidden">
-                          <div className="font-black text-black text-sm border-b-4 border-black pb-1">障礙物紀錄</div>
+                      {/* 固定高度（剛好放 5 筆），倒數、比賽、結算時都保留這塊空間，視窗高度不會被撐開 */}
+                      {status !== 'lobby' && (
+                        <div data-testid="hazard-feed" className="w-full mt-4 flex flex-col gap-1.5 overflow-hidden shrink-0" style={{ height: HAZ_FEED_H }}>
+                          <div className="font-black text-black text-sm border-b-4 border-black h-[22px] leading-[18px] shrink-0">障礙物紀錄</div>
                           {hazFeed.map(ev => (
-                            <div key={ev.id} data-hazard-item={ev.type} className="hz-item flex items-center gap-1.5 bg-white border-[3px] border-black px-2 py-0.5 font-black text-sm text-black">
+                            <div key={ev.id} data-hazard-item={ev.type} className="hz-item flex items-center gap-1.5 bg-white border-[3px] border-black px-2 h-8 shrink-0 font-black text-sm text-black">
                               <span>#{pad2(ev.table)}</span>
                               <span className="hz-ico w-6 h-6 shrink-0" dangerouslySetInnerHTML={{ __html: HAZARD_INFO[ev.type].svg }} />
                               <span>{HAZARD_INFO[ev.type].name}</span>
