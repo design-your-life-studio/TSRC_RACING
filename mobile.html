@@ -475,6 +475,8 @@
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
       const [pendingTable, setPendingTable] = useState(null);
+      const [showRank, setShowRank] = useState(false);   // 比賽結束後：查看本場排行
+      const [rankOpen, setRankOpen] = useState(null);     // 排行榜中展開的車隊（看每位成員分數）
       const formulaRef = useRef(null);   // 首頁「方程式」三個字（英文副標對齊用）
       // 開場（載入）畫面：一進網頁先顯示 3 秒再淡出；重新整理接回房間時略過
       const splashTitleRef = useRef(null);
@@ -539,6 +541,16 @@
       const uid = user?.uid;
       const myKey = myTable ? teamKey(myTable) : null;
       const status = room?.meta?.status;
+      useEffect(() => { if (status !== 'finished') { setShowRank(false); setRankOpen(null); } }, [status, roomCode]);
+      // 比賽結束後讀取一次全部成員的最終分數（比賽中不監聽別人的分數，避免手機負擔）
+      const [finalScores, setFinalScores] = useState(null);
+      useEffect(() => {
+        setFinalScores(null);
+        if (status !== 'finished' || !roomCode) return;
+        let alive = true;
+        get(ref(db, `rooms/${roomCode}/scores`)).then(snap => { if (alive) setFinalScores(snap.val() || {}); }).catch(() => {});
+        return () => { alive = false; };
+      }, [status, roomCode, room?.meta?.finishedAt]);   // 重賽或離開房間時關閉排行
       const roomPath = roomCode ? `rooms/${roomCode}` : null;
 
       // 1. 匿名登入 + 連線狀態（Firebase SDK 會自動斷線重連）
@@ -1129,7 +1141,7 @@
             )}
             {/* ===== 比賽結束／中止（完整排名於第五階段加入）===== */}
             {view === 'team' && room && myTable && (status === 'finished' || status === 'aborted') && (() => {
-              const ranking = room.result?.ranking || [];
+              const ranking = Array.isArray(room.result?.ranking) ? room.result.ranking : Object.values(room.result?.ranking || {});
               const mine = ranking.find(r => r.table === myTable);
               const top = ranking.filter(r => r.rank === 1 && r.score > 0);
               const aborted = status === 'aborted';
@@ -1153,11 +1165,75 @@
                     </div>
                   </div>
                   <p className="text-white/80 font-bold text-sm text-center">{aborted ? '請等待工作人員重新開始' : '請看大螢幕公布結果'}</p>
+                  {!aborted && ranking.length > 0 && (
+                    <div className="w-full max-w-sm mt-auto">
+                      <button data-testid="open-rank" onClick={() => setShowRank(true)} className={bigBtn('primary')}>查看排行</button>
+                    </div>
+                  )}
                 </div>
               );
             })()}
           </FitArea>
           )}
+          {/* 本場排行榜（只顯示這一場）：大螢幕結束本場後，手機會自動回到輸入房號畫面 */}
+          {showRank && view === 'team' && room && status === 'finished' && (() => {
+            const ranking = Array.isArray(room.result?.ranking) ? room.result.ranking : Object.values(room.result?.ranking || {});
+            const medal = (rk) => rk === 1 ? 'bg-[#facc15]' : rk === 2 ? 'bg-[#e2e8f0]' : rk === 3 ? 'bg-[#f59e0b]' : 'bg-white';
+            return (
+              <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                <div data-testid="rank-sheet" className="bg-[#facc15] border-4 border-black retro-shadow w-full max-w-sm max-h-full flex flex-col">
+                  <div className="px-4 pt-4 pb-2">
+                    <div className="font-black text-black text-2xl">本場排行</div>
+                    <div className="font-bold text-black/70 text-sm">ROOM {roomCode}・共 {ranking.length} 隊・點車隊看成員分數</div>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 flex flex-col gap-2">
+                    {ranking.map(r => {
+                      const mine = r.table === myTable;
+                      const tk = teamKey(r.table);
+                      const names = Object.values(room.players?.[tk] || {}).map(p => p?.name).filter(Boolean);
+                      const open = rankOpen === r.table;
+                      // 每位成員的分數：有加入名單的人都列出（沒得分顯示 0），依分數高到低
+                      const members = Object.entries(room.players?.[tk] || {}).map(([u, pl]) => ({ uid: u, name: pl?.name || '—', score: Number(finalScores?.[tk]?.[u]?.s) || 0, leader: room.teams?.[tk]?.leaderUid === u, me: u === user?.uid }))
+                        .sort((a, b) => b.score - a.score);
+                      return (
+                        <div key={r.table} className={`border-4 border-black ${mine ? 'bg-[#fef08a] shadow-[3px_3px_0_#000]' : 'bg-white'}`}>
+                        <button type="button" data-rank-row={r.table} aria-expanded={open} onClick={() => setRankOpen(open ? null : r.table)} className="w-full flex items-center gap-2 px-2 py-1.5 text-left">
+                          <span className={`w-9 h-9 shrink-0 rounded-full border-[3px] border-black flex items-center justify-center font-black ${medal(r.rank)}`}>{r.rank}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-black text-black text-lg whitespace-nowrap">第 {pad2(r.table)} 桌</div>
+                            <div className="flex items-center gap-1 min-w-0">
+                              {mine && <span className="shrink-0 text-[10px] leading-4 bg-[#e11d48] text-white font-black px-1 border-2 border-black whitespace-nowrap">我的車隊</span>}
+                              <span className="text-xs font-bold text-gray-600 truncate">{names.join('、') || '—'}</span>
+                            </div>
+                          </div>
+                          <span className="w-12 h-5 shrink-0"><F1CarSVG color={colorHex(room.teams?.[teamKey(r.table)]?.color)} /></span>
+                          <span className="w-14 text-right font-black text-black text-xl shrink-0">{r.score}</span>
+                          <span className="w-4 text-center font-black text-[#1e3a8a] text-xs shrink-0">{open ? '▲' : '▼'}</span>
+                        </button>
+                        {open && (
+                          <div data-rank-members={r.table} className="border-t-[3px] border-black bg-white px-2 py-1.5 flex flex-col gap-1">
+                            {members.length ? members.map((m, i) => (
+                              <div key={m.uid} data-member={m.name} className="flex items-center gap-2 text-sm font-black text-black">
+                                <span className="w-5 text-gray-500 text-xs">{i + 1}</span>
+                                <span className="flex-1 min-w-0 truncate">{m.name}{m.me && <span className="text-gray-500 font-bold">（你）</span>}</span>
+                                {m.leader && <span className="text-[10px] bg-[#e11d48] text-white px-1.5 border-2 border-black">隊長</span>}
+                                <span className="w-12 text-right">{m.score} 分</span>
+                                <span className="w-10 text-right text-xs font-bold text-gray-500">{r.score ? Math.round(m.score / r.score * 100) : 0}%</span>
+                              </div>
+                            )) : <div className="text-sm font-bold text-gray-500">沒有成員資料</div>}
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="p-3 border-t-4 border-black">
+                    <button onClick={() => setShowRank(false)} className={bigBtn('neutral')}>關閉</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           {/* 加入車隊：輸入暱稱 */}
           {pendingTable && view === 'pick' && (
             <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
