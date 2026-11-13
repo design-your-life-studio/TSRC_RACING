@@ -3,6 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 手機開啟主控端：橫拿時把手機當成「高 720」的小螢幕排版再等比縮小（和電腦版比例一致）；直拿時提示轉成橫向 -->
+  <script>
+    (function () {
+      var isPhone = window.matchMedia && matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
+      if (!isPhone) return;
+      var VIRTUAL_H = 720;
+      // 以畫面實際的寬高判斷橫／直（不受瀏覽器回報差異影響；改寫 viewport 後寬高比例仍與手機方向一致）
+      var isLandscape = function () { return innerWidth > innerHeight; };
+      var fit = function () {
+        var meta = document.querySelector('meta[name="viewport"]');
+        var long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
+        var land = isLandscape();
+        var content = land
+          ? 'width=' + Math.round(VIRTUAL_H * long / short) + ', user-scalable=no'
+          : 'width=device-width, initial-scale=1, user-scalable=no';
+        if (meta && meta.getAttribute('content') !== content) meta.setAttribute('content', content);
+        document.documentElement.classList.add('phone-host');
+        document.documentElement.classList.toggle('phone-portrait', !land);
+      };
+      fit();
+      var t = 0;
+      var later = function () { clearTimeout(t); t = setTimeout(fit, 120); };
+      window.addEventListener('orientationchange', later);
+      window.addEventListener('resize', later);
+      if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', later);
+    })();
+  </script>
   <title>綠能方程式 - 大螢幕主控端</title>
 
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -27,6 +54,16 @@
     @import url('https://fonts.googleapis.com/css2?family=Dela+Gothic+One&text=%E7%B6%A0%E8%83%BD%E6%96%B9%E7%A8%8B%E5%BC%8F&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Anton&family=Bungee&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
     html, body { height: 100%; overflow: hidden; }
+    html, body { background: #1e3a8a; }   /* 手機瀏海兩側的留白也是藍色 */
+    /* 手機直拿：顯示「請將手機轉為橫向」 */
+    #rotate-tip { display: none; }
+    .phone-portrait #rotate-tip { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; text-align: center; padding: 30px; color: #fff;
+      background-color: #1e3a8a; background-image: conic-gradient(rgba(255,255,255,0.06) 25%, transparent 0 50%, rgba(255,255,255,0.06) 0 75%, transparent 0); background-size: 88px 88px; }
+    #rotate-tip .ph { width: 70px; height: 120px; border: 6px solid #fff; border-radius: 14px; }
+    #rotate-tip b { font-size: 24px; font-weight: 900; }
+    #rotate-tip span { color: #cbd5e1; font-weight: 700; font-size: 14px; line-height: 1.6; }
+    @media (prefers-reduced-motion: no-preference) { #rotate-tip .ph { animation: rotateTip 2.4s ease-in-out infinite; } }
+    @keyframes rotateTip { 0%, 25% { transform: rotate(0); } 55%, 85% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
     body { font-family: 'Noto Sans TC', sans-serif; }
     .retro-title {
       text-shadow: 4px 4px 0px #e11d48, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
@@ -134,6 +171,7 @@
   </style>
 </head>
 <body>
+  <div id="rotate-tip" data-testid="rotate-tip"><div class="ph"></div><b>請將手機轉為橫向</b><span>主控端畫面為橫式設計<br>轉成橫向後會自動顯示</span></div>
   <div id="root"></div>
 
   <script type="text/babel" data-type="module">
