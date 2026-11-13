@@ -642,7 +642,9 @@
       // ===== 比賽 =====
       const countdownAt = room?.meta?.countdownAt || null;
       const raceStart = countdownAt ? countdownAt + COUNTDOWN_MS : null;
-      const raceEnd = raceStart ? raceStart + RACE_DURATION * 1000 : null;
+      const target = Number(room?.meta?.target) || TARGET_SCORE;      // 大螢幕「遊戲設定」的目標分數
+      const duration = Number(room?.meta?.duration) || RACE_DURATION; // 大螢幕「遊戲設定」的比賽秒數
+      const raceEnd = raceStart ? raceStart + duration * 1000 : null;
       const inRace = view === 'team' && !!myKey && (status === 'countdown' || status === 'racing');
       const playing = inRace && raceStart && now >= raceStart && now < raceEnd;
 
@@ -883,7 +885,7 @@
                   </div>
                   <div className={`border-4 border-black px-3 py-1 text-center leading-none ${raceEnd && now >= raceEnd - 5000 && now < raceEnd ? 'bg-[#e11d48] text-white animate-pulse' : 'bg-black text-[#facc15]'}`}>
                     <div className="text-[10px] font-black">TIME</div>
-                    <div className="font-latin text-3xl" data-testid="race-time">{raceStart && now >= raceStart ? Math.max(0, Math.ceil((raceEnd - now) / 1000)) : RACE_DURATION}</div>
+                    <div className="font-latin text-3xl" data-testid="race-time">{raceStart && now >= raceStart ? Math.max(0, Math.ceil((raceEnd - now) / 1000)) : duration}</div>
                   </div>
                   <div className="text-right leading-tight">
                     <div className="text-[10px] font-black">TEAM SCORE</div>
@@ -895,7 +897,7 @@
                 </div>
                 {/* 我方進度條 */}
                 <div className="mt-2 h-3 bg-white/20 border-2 border-black rounded-full overflow-hidden">
-                  <div className="h-full bg-[#22c55e] transition-all duration-300" style={{ width: `${Math.min(100, ((room?.teamScores?.[myKey] || 0) / TARGET_SCORE) * 100)}%` }}></div>
+                  <div className="h-full bg-[#22c55e] transition-all duration-300" style={{ width: `${Math.min(100, ((room?.teamScores?.[myKey] || 0) / target) * 100)}%` }}></div>
                 </div>
               </div>
 
@@ -1152,7 +1154,7 @@
                     {iWon && <div className="flex justify-center mb-2"><TrophyIcon size={84} /></div>}
                     <div className="font-winner text-[42px] text-black mb-3">{aborted ? 'STOPPED' : iWon ? 'WINNER!' : 'FINISH'}</div>
                     <div className="inline-block bg-black text-white font-black text-sm px-3 py-1 mb-4">
-                      {{ target: `率先達到 ${TARGET_SCORE} 分`, timeout: `${RACE_DURATION} 秒時間到`, aborted: '工作人員緊急中止' }[room.meta?.endReason] || '比賽結束'}
+                      {{ target: `率先達到 ${target} 分`, timeout: `${duration} 秒時間到`, aborted: '工作人員緊急中止' }[room.meta?.endReason] || '比賽結束'}
                     </div>
                     {!aborted && (
                       <p className="font-black text-black text-lg mb-2">
