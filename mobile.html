@@ -1263,7 +1263,7 @@ const ICE_SVG = HAZ_SVG(`
                       const tk = teamKey(r.table);
                       const open = rankOpen === r.table;
                       // 每位成員的分數：有加入名單的人都列出（沒得分顯示 0），依分數高到低
-                      const members = Object.entries(room.players?.[tk] || {}).map(([u, pl]) => ({ uid: u, name: pl?.name || '—', score: Number(finalScores?.[tk]?.[u]?.s) || 0, leader: room.teams?.[tk]?.leaderUid === u, me: u === user?.uid }))
+                      const members = Object.entries(room.players?.[tk] || {}).filter(([u, pl]) => pl?.online || finalScores?.[tk]?.[u]).map(([u, pl]) => ({ uid: u, name: pl?.name || '—', score: Number(finalScores?.[tk]?.[u]?.s) || 0, leader: room.teams?.[tk]?.leaderUid === u, me: u === user?.uid }))
                         .sort((a, b) => b.score - a.score);
                       return (
                         <div key={r.table} className={`border-4 border-black ${mine ? 'bg-[#fef08a] shadow-[3px_3px_0_#000]' : 'bg-white'}`}>
