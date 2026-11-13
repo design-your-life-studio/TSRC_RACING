@@ -1137,7 +1137,7 @@
                     </button>
                   );
                 })()}
-                <p className="text-center text-white/80 font-bold text-xs">全隊都按下準備後，大螢幕會亮綠燈</p>
+                <p className="text-center text-white/80 font-bold text-xs">全隊按下準備後，遊戲才會開始</p>
                 <button onClick={leaveTeam} disabled={status !== 'lobby'} className="mx-auto font-black text-white underline">更換車隊</button>
               </div>
             )}
@@ -1192,7 +1192,6 @@
                     {ranking.map(r => {
                       const mine = r.table === myTable;
                       const tk = teamKey(r.table);
-                      const names = Object.values(room.players?.[tk] || {}).map(p => p?.name).filter(Boolean);
                       const open = rankOpen === r.table;
                       // 每位成員的分數：有加入名單的人都列出（沒得分顯示 0），依分數高到低
                       const members = Object.entries(room.players?.[tk] || {}).map(([u, pl]) => ({ uid: u, name: pl?.name || '—', score: Number(finalScores?.[tk]?.[u]?.s) || 0, leader: room.teams?.[tk]?.leaderUid === u, me: u === user?.uid }))
@@ -1203,10 +1202,8 @@
                           <span className={`w-9 h-9 shrink-0 rounded-full border-[3px] border-black flex items-center justify-center font-black ${medal(r.rank)}`}>{r.rank}</span>
                           <div className="flex-1 min-w-0">
                             <div className="font-black text-black text-lg whitespace-nowrap">第 {pad2(r.table)} 桌</div>
-                            <div className="flex items-center gap-1 min-w-0">
-                              {mine && <span className="shrink-0 text-[10px] leading-4 bg-[#e11d48] text-white font-black px-1 border-2 border-black whitespace-nowrap">我的車隊</span>}
-                              <span className="text-xs font-bold text-gray-600 truncate">{names.join('、') || '—'}</span>
-                            </div>
+                            {/* 暱稱只在展開後的成員清單顯示 */}
+                            {mine && <span className="inline-block text-[10px] leading-4 bg-[#e11d48] text-white font-black px-1 border-2 border-black whitespace-nowrap">我的車隊</span>}
                           </div>
                           <span className="w-12 h-5 shrink-0"><F1CarSVG color={colorHex(room.teams?.[teamKey(r.table)]?.color)} /></span>
                           <span className="w-14 text-right font-black text-black text-xl shrink-0">{r.score}</span>
@@ -1218,7 +1215,6 @@
                               <div key={m.uid} data-member={m.name} className="flex items-center gap-2 text-sm font-black text-black">
                                 <span className="w-5 text-gray-500 text-xs">{i + 1}</span>
                                 <span className="flex-1 min-w-0 truncate">{m.name}{m.me && <span className="text-gray-500 font-bold">（你）</span>}</span>
-                                {m.leader && <span className="text-[10px] bg-[#e11d48] text-white px-1.5 border-2 border-black">隊長</span>}
                                 <span className="w-12 text-right">{m.score} 分</span>
                                 <span className="w-10 text-right text-xs font-bold text-gray-500">{r.score ? Math.round(m.score / r.score * 100) : 0}%</span>
                               </div>
