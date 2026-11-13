@@ -225,8 +225,19 @@
     const MIN_TEAMS = 2;         // 每場最少參賽組數
     const RACED_STORAGE_KEY = 'tsrc_raced_tables'; // 本機瀏覽器記錄：已比過賽的桌號
     const HISTORY_STORAGE_KEY = 'tsrc_race_history'; // 本機瀏覽器記錄：已完成比賽的成績
-    const TARGET_SCORE = 500;    // 任一組先到此分數，比賽立即結束
-    const RACE_DURATION = 30;    // 比賽秒數
+    const TARGET_SCORE = 500;    // 預設目標分數：任一組先到此分數，比賽立即結束（可在「遊戲設定」更改）
+    const RACE_DURATION = 30;    // 預設比賽秒數（可在「遊戲設定」更改）
+    const TARGET_OPTIONS = [300, 500, 800, 1000];
+    const DURATION_OPTIONS = [20, 30, 45, 60];
+    // 每個房間建立時記錄當時的設定；舊房間沒有記錄就用預設值
+    const roomTarget = (meta) => Number(meta?.target) || TARGET_SCORE;
+    const roomDuration = (meta) => Number(meta?.duration) || RACE_DURATION;
+    const SETTINGS_STORAGE_KEY = 'tsrc_game_settings';
+    const loadSettings = () => {
+      try { const v = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return { target: TARGET_OPTIONS.includes(v.target) ? v.target : TARGET_SCORE, duration: DURATION_OPTIONS.includes(v.duration) ? v.duration : RACE_DURATION }; }
+      catch (e) { return { target: TARGET_SCORE, duration: RACE_DURATION }; }
+    };
     const COUNTDOWN_MS = 3000;   // 3、2、1 倒數；之後顯示 GO 並正式開賽
     const FINISH_GRACE_MS = 1200;  // 時間到後，等手機最後一次回傳分數的緩衝
     const TEAM_SCORE_SYNC_MS = 250; // 主控端把各組總分同步給手機的頻率
@@ -298,6 +309,7 @@
         room: code,
         finishedAt: Number(room.meta.finishedAt) || Date.now(),
         reason: room.meta.endReason,
+        target: roomTarget(room.meta), duration: roomDuration(room.meta),
         teams: ranking.map(r => {
           const key = teamKey(r.table);
           const leader = room.teams?.[key]?.leaderUid;
@@ -342,7 +354,7 @@
     const raceWindow = (meta) => {
       if (!meta?.countdownAt) return null;
       const start = meta.countdownAt + COUNTDOWN_MS;
-      return { countdownAt: meta.countdownAt, start, end: start + RACE_DURATION * 1000 };
+      return { countdownAt: meta.countdownAt, start, end: start + roomDuration(meta) * 1000 };
     };
     // 障礙物圖示（與手機端相同）：大螢幕顯示「哪一隊踩到了什麼」
     const HAZ_SVG = (inner) => `<svg viewBox="0 0 64 64" width="88" height="88" style="overflow:visible;filter:drop-shadow(3px 3px 0 #000)"><g stroke="#000" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round">${inner}</g></svg>`;
@@ -365,10 +377,12 @@
       <path d="M27.7,20 L36.3,20 L38.4,28 L25.6,28 Z" fill="#fff"/>
       <path d="M23,36 L41,36 L43.2,44 L20.8,44 Z" fill="#fff"/>`);
     const HAZARD_INFO = { banana: { name: '香蕉皮', pts: -10, svg: BANANA_SVG }, cone: { name: '三角錐', pts: -20, svg: CONE_SVG } };
+    const SCORE_RENDER_MS = 250;   // 大螢幕分數重繪節流：每 250ms 最多更新一次畫面
     const HAZ_FX_MS = 1300;   // 賽道上貼紙彈出的時間
     const HAZ_FEED_MAX = 5;   // 左側障礙物紀錄最多顯示幾筆
     const HAZ_FEED_H = 28 + 5 * 32 + 5 * 6;   // 標題 28px＋5 筆（每筆 32px、間距 6px）的固定高度
-    const END_REASON_TEXT = { target: `率先達到 ${TARGET_SCORE} 分`, timeout: `${RACE_DURATION} 秒時間到`, aborted: '工作人員緊急中止' };
+    const endReasonText = (reason, target = TARGET_SCORE, duration = RACE_DURATION) =>
+      ({ target: `率先達到 ${target} 分`, timeout: `${duration} 秒時間到`, aborted: '工作人員緊急中止' })[reason] || '';
 
     const playerUrl = (code) => {
       const u = new URL('mobile.html', location.href);
@@ -671,7 +685,7 @@
                   <>
                     <div className="flex items-baseline justify-between mb-4">
                       <div className="font-black text-black text-2xl">{sel === 'all' ? '全部組別總排行' : `第 ${raceNo.get(sel)} 場成績`}</div>
-                      {current && <div className="font-bold text-gray-600">房號 {current.room}・{hhmm(current.finishedAt)} 結束・{END_REASON_TEXT[current.reason] || ''}</div>}
+                      {current && <div className="font-bold text-gray-600">房號 {current.room}・{hhmm(current.finishedAt)} 結束・{endReasonText(current.reason, current.target, current.duration)}</div>}
                     </div>
                     <div className="grid grid-cols-[64px_96px_80px_1fr_120px_120px] items-center gap-3 px-3 pb-2 border-b-4 border-black font-black text-sm text-gray-600">
                       <span>名次</span><span>桌號</span><span>賽車</span><span>{sel === 'all' ? '場次' : '成員'}</span><span className="text-right">總分</span><span></span>
@@ -724,6 +738,44 @@
     };
 
 
+    // ================= 遊戲設定視窗（目標分數、比賽秒數）=================
+    const GameSettings = ({ settings, onChange, onClose }) => {
+      useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
+      }, [onClose]);
+      const row = (label, desc, options, value, unit, field) => (
+        <div className="mb-6">
+          <div className="font-black text-black text-xl">{label}</div>
+          <div className="font-bold text-gray-500 text-sm mb-3">{desc}</div>
+          <div className="flex gap-3">
+            {options.map(v => (
+              <button key={v} data-setting={`${field}-${v}`} aria-pressed={value === v} onClick={() => onChange({ [field]: v })}
+                className={`min-w-[96px] px-4 py-2 border-4 border-black font-black text-xl transition-all ${value === v ? `${SEL_ON} translate-x-[4px] translate-y-[4px] shadow-none` : `bg-white text-black shadow-[4px_4px_0px_#000] ${SEL_HOVER}`}`}>
+                {v}{unit}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+      return (
+        <div className="absolute inset-0 z-[70] bg-black/60 flex items-center justify-center p-6" onClick={onClose}>
+          <div data-testid="settings-modal" onClick={e => e.stopPropagation()} className="w-full max-w-xl">
+            <RetroWindow title="Game_Settings.exe">
+              <div className="p-6 bg-white">
+                {row('目標分數', '任一組先達到這個分數，比賽立即結束', TARGET_OPTIONS, settings.target, ' 分', 'target')}
+                {row('比賽秒數', '時間到還沒有隊伍達標，就以分數最高的隊伍獲勝', DURATION_OPTIONS, settings.duration, ' 秒', 'duration')}
+                <div className="font-bold text-gray-500 text-sm">設定會記在這台電腦，下一個建立的房間開始套用</div>
+              </div>
+              <div className="border-t-4 border-black bg-[#f1f5f9] p-3 flex justify-end">
+                <button onClick={onClose} className={ghostBtn}>關閉</button>
+              </div>
+            </RetroWindow>
+          </div>
+        </div>
+      );
+    };
+
     // ================= 音樂與音效（只在大螢幕播放；全部由網頁即時合成 8-bit 音色，不需音檔）=================
     // 瀏覽器規定：網頁被點擊一次之後才能出聲，所以第一次點擊（任何按鈕或左下角音效鍵）時才啟動
     const SOUND_KEY = 'tsrc_sound';
@@ -770,6 +822,18 @@
         });
       };
       const crash = (t, v = 0.22) => noise(t, 2.2, { vol: v, f: 4500 });
+      // 大空間殘響（太鼓用）：第一次用到時才建立
+      let verbNode = null;
+      const verb = () => {
+        if (verbNode) return verbNode;
+        const len = ctx.sampleRate * 2.2, buf = ctx.createBuffer(2, len, ctx.sampleRate);
+        for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+        verbNode = ctx.createConvolver(); verbNode.buffer = buf;
+        const g = ctx.createGain(); g.gain.value = 0.35; verbNode.connect(g); g.connect(master);
+        return verbNode;
+      };
+      // 送進殘響的鼓聲：同時輸出乾聲與殘響
+      const wetBus = () => { const g = ctx.createGain(); g.connect(master); g.connect(verb()); return g; };
       const timpani = (t, v = 0.55) => { tone(98, t, 0.7, { type: 'sine', vol: v, to: 65 }); noise(t, 0.12, { vol: 0.14, type: 'lowpass', f: 500 }); };
 
       // 配樂：和弦進行＋自動生成貝斯、旋律、鼓組
@@ -828,6 +892,11 @@
 
       // 音效
       const FX = {
+        // 首頁標題逐字出現（方案 03 太鼓祭典）：i = 第幾個字（0～4），最後一字雙擊＋鼓邊「咔」
+        taiko(i = 0) { const t = ctx.currentTime, out = wetBus();
+          tone(i === 4 ? 70 : 90, t, 0.6, { type: 'sine', vol: 0.7, to: 50, out }); noise(t, 0.08, { vol: 0.18, type: 'lowpass', f: 700, out });
+          tone(320, t, 0.04, { type: 'triangle', vol: 0.1 });
+          if (i === 4) { tone(70, t + 0.16, 0.7, { type: 'sine', vol: 0.75, to: 45, out }); noise(t + 0.32, 0.04, { vol: 0.35, type: 'bandpass', f: 3000, q: 3 }); } },
         thump() { const t = ctx.currentTime; tone(110, t, 0.16, { type: 'sine', vol: 0.5, to: 45 }); noise(t, 0.05, { vol: 0.12, f: 2000 }); },
         carIn() { const t = ctx.currentTime; tone(70, t, 1.1, { type: 'sawtooth', vol: 0.08, to: 260 }); tone(72, t, 1.1, { type: 'square', vol: 0.04, to: 255 }); noise(t, 1.0, { vol: 0.08, type: 'bandpass', f: 400, to: 1400, q: 2 }); },
         popIn() { const t = ctx.currentTime; tone('C6', t, 0.08, { vol: 0.08 }); tone('G6', t + 0.06, 0.14, { vol: 0.08 }); },
@@ -971,6 +1040,10 @@
       const [unmarkArmed, setUnmarkArmed] = useState(null); // 準備解除註記的桌號
       const [history, setHistory] = useState(loadHistory);
       const [showHistory, setShowHistory] = useState(false);
+      // 遊戲設定（目標分數、比賽秒數）：記在這台電腦，建立房間時套用
+      const [settings, setSettings] = useState(loadSettings);
+      const [showSettings, setShowSettings] = useState(false);
+      const changeSettings = (patch) => setSettings(prev => { const next = { ...prev, ...patch }; store.set(SETTINGS_STORAGE_KEY, JSON.stringify(next)); return next; });
       const [roomCode, setRoomCode] = useState(null);
       const [room, setRoom] = useState(null);
       const [busy, setBusy] = useState(false);
@@ -1003,15 +1076,52 @@
       }, [user]);
 
       // 3. 監聽房間資料 + 主控端在線狀態（斷線時自動標記離線，重連後恢復）
+      //    高併發效能：不監聽整個房間，而是分開監聽各區塊；
+      //    scores（數百位玩家每 0.3 秒回傳）變動最頻繁 → 先存進緩衝區，每 250ms 最多更新畫面一次。
+      //    裁判判斷（達標結束、結算排名、同步總分給手機）改用「即時分數」sumsRef，不受畫面節流影響、不會漏掉最後幾分。
       useEffect(() => {
-        if (!roomCode) { setRoom(null); return; }
-        const unRoom = onValue(ref(db, `rooms/${roomCode}`), s => setRoom(s.val()), err => console.error(err));
+        setRoom(null);
+        sumsRef.current = {};
+        if (!roomCode) return;
+        const PARTS = ['meta', 'tables', 'teams', 'players', 'teamScores', 'result', 'scores'];
+        const latest = {};
+        const seen = new Set();
+        let alive = true;
+        let scoreTimer = null;
+        let shownScores = null;   // 畫面上目前使用的分數（只在節流時間到才換成最新）
+        // 即時加總（不觸發重繪）：給裁判計時器與結算使用
+        const syncSums = () => { sumsRef.current = teamSums({ tables: latest.tables, scores: latest.scores }); };
+        // 全部區塊都至少收到一次後才顯示，避免畫面拿到不完整的房間資料；meta 不見代表房間已被刪除 → room = null
+        const commit = () => {
+          if (!alive || seen.size < PARTS.length) return;
+          setRoom(latest.meta ? { ...latest, scores: shownScores } : null);
+        };
+        const unsubs = PARTS.map(part => onValue(ref(db, `rooms/${roomCode}/${part}`), snap => {
+          latest[part] = snap.val();
+          const first = !seen.has(part);
+          seen.add(part);
+          if (part === 'scores' || part === 'tables') syncSums();
+          if (part === 'scores') {
+            if (first) shownScores = latest.scores;
+            else {
+              // 分數節流：250ms 內的多次變動合併成一次重繪（每秒最多 4 次）；其他區塊更新時也不會順便帶入新分數
+              if (!scoreTimer) scoreTimer = setTimeout(() => { scoreTimer = null; shownScores = latest.scores; commit(); }, SCORE_RENDER_MS);
+              return;
+            }
+          }
+          commit();
+        }, err => console.error(`監聽 ${part} 失敗`, err)));
         const onlineRef = ref(db, `rooms/${roomCode}/meta/hostOnline`);
         const unConn = onValue(ref(db, '.info/connected'), s => {
           if (s.val() !== true) return;
           onDisconnect(onlineRef).set(false).then(() => set(onlineRef, true)).catch(console.error);
         });
-        return () => { unRoom(); unConn(); };
+        return () => {
+          alive = false;
+          unsubs.forEach(fn => fn());
+          unConn();
+          if (scoreTimer) clearTimeout(scoreTimer);
+        };
       }, [roomCode]);
 
       // 房間被刪除時回首頁
@@ -1045,6 +1155,9 @@
       // ===== 比賽控制（主控端擔任裁判）=====
       const status = room?.meta?.status || 'lobby';
       const win = raceWindow(room?.meta);
+      const target = roomTarget(room?.meta);
+      const duration = roomDuration(room?.meta);
+      const targetRef = useRef(target); targetRef.current = target;
       const sums = useMemo(() => teamSums(room), [room]);
       // 踩到障礙物：比對每位玩家回傳的次數（hb 香蕉皮、hc 三角錐），有增加就在賽道彈出貼紙、左側加一筆紀錄
       const [hazFx, setHazFx] = useState([]);
@@ -1075,7 +1188,6 @@
           setTimeout(() => setHazFx(fx => fx.filter(x => x.id !== ev.id)), HAZ_FX_MS);
         }, ev.delay));
       }, [room?.scores, status, view, roomCode, win?.countdownAt]);
-      sumsRef.current = sums;
 
       // 伺服器時間差：所有裝置用同一個時鐘計算倒數
       useEffect(() => onValue(ref(db, '.info/serverTimeOffset'), s => { offsetRef.current = Number(s.val()) || 0; }), []);
@@ -1103,7 +1215,7 @@
             update(ref(db, `rooms/${roomCode}/meta`), { status: 'racing' }).catch(err => { console.error(err); refereeRef.current.racingFor = null; setError(`開賽失敗：${errText(err)}`); });
           }
           if (status === 'racing') {
-            if (Object.values(sumsRef.current).some(v => v >= TARGET_SCORE)) finishRace('target');
+            if (Object.values(sumsRef.current).some(v => v >= targetRef.current)) finishRace('target');
             else if (t >= win.end + FINISH_GRACE_MS) finishRace('timeout');
           }
         };
@@ -1114,7 +1226,7 @@
 
       // 有組別達標時立即結束（不用等下一次計時）
       useEffect(() => {
-        if (status === 'racing' && Object.values(sums).some(v => v >= TARGET_SCORE)) finishRace('target');
+        if (status === 'racing' && Object.values(sumsRef.current).some(v => v >= target)) finishRace('target');
       }, [sums, status]);
 
       // 比賽中把各組總分同步給手機（節流）
@@ -1169,7 +1281,7 @@
       // 首頁進場：標題逐字蓋章、賽車開進來、按鈕彈出
       useEffect(() => {
         if (!homeIntro || launching) return;
-        const ts = [0, 1, 2, 3, 4].map(i => setTimeout(() => Sound.sfx('thump'), 550 + i * 90));
+        const ts = [0, 1, 2, 3, 4].map(i => setTimeout(() => Sound.sfx('taiko', i), 550 + i * 90));
         ts.push(setTimeout(() => Sound.sfx('carIn'), 600), setTimeout(() => Sound.sfx('popIn'), 1420));
         return () => ts.forEach(clearTimeout);
       }, [homeIntro]);
@@ -1302,7 +1414,7 @@
           let code = null;
           for (let i = 0; i < 20 && !code; i++) {
             const candidate = String(100000 + Math.floor(Math.random() * 900000));
-            const data = { meta: { hostUid: user.uid, createdAt: Date.now(), status: 'lobby' }, tables, teams };
+            const data = { meta: { hostUid: user.uid, createdAt: Date.now(), status: 'lobby', target: settings.target, duration: settings.duration }, tables, teams };
             const res = await runTransaction(ref(db, `rooms/${candidate}`), cur => (cur === null ? data : undefined));
             if (res.committed) code = candidate;
           }
@@ -1497,6 +1609,7 @@
                   </div>
                   {/* 按鈕縮窄：選滿 10 組時，桌號標籤仍可和按鈕排在同一列，視窗不會被拉長 */}
                   <div className="flex gap-2 items-center shrink-0">
+                    <button data-testid="open-settings" onClick={() => setShowSettings(true)} className={`${ghostBtn} !px-4 whitespace-nowrap`}>遊戲設定</button>
                     <button data-testid="open-history" onClick={() => setShowHistory(true)} title="查看目前成績" className={`${ghostBtn} !px-4 inline-flex items-center gap-1.5 whitespace-nowrap`}>
                       查看成績
                     </button>
@@ -1533,7 +1646,7 @@
                       <div data-testid="race-timer" className={`font-latin text-[120px] leading-none mt-1 ${status === 'racing' && win && win.end - now <= 5000 ? 'text-[#e11d48] animate-pulse' : 'text-black'}`}>
                         {(() => {
                           if (!win) return '30';
-                          if (status === 'countdown') return String(RACE_DURATION);
+                          if (status === 'countdown') return String(duration);
                           if (status === 'racing') return String(Math.max(0, Math.ceil((win.end - now) / 1000))).padStart(2, '0');
                           return '00';
                         })()}
@@ -1541,7 +1654,7 @@
                       <div className="font-hud font-bold text-black tracking-[0.2em] text-sm">SEC</div>
                       <div className="w-full h-1 bg-black my-6"></div>
                       <div className="font-black text-black text-lg">目標分數</div>
-                      <div className="font-latin text-6xl text-black">{TARGET_SCORE}</div>
+                      <div data-testid="race-target" className="font-latin text-6xl text-black">{target}</div>
                       {/* 障礙物紀錄：最新的在最上面 */}
                       {/* 固定高度（剛好放 5 筆），倒數、比賽、結算時都保留這塊空間，視窗高度不會被撐開 */}
                       {status !== 'lobby' && (
@@ -1586,7 +1699,7 @@
                           const color = colorHex(room.teams?.[teamKey(t)]?.color);
                           const inRace = status !== 'lobby';
                           const score = status === 'finished' || status === 'aborted' ? (room.teamScores?.[teamKey(t)] ?? sums[t] ?? 0) : (sums[t] || 0);
-                          const val = inRace ? Math.min((score / TARGET_SCORE) * 100, 100) : 0;
+                          const val = inRace ? Math.min((score / target) * 100, 100) : 0;
                           return (
                             <div key={t} data-lane={t} className="flex items-center gap-3">
                               <div className="w-16 h-10 bg-[#facc15] border-4 border-black rounded flex items-center justify-center shadow-[3px_3px_0px_#000] z-20 shrink-0">
@@ -1639,6 +1752,7 @@
           )}
 
           {showHistory && <ScoreHistory history={history} onClose={() => setShowHistory(false)} onClear={clearHistory} />}
+          {showSettings && <GameSettings settings={settings} onChange={changeSettings} onClose={() => setShowSettings(false)} />}
 
           {/* 3、2、1、GO 倒數 */}
           {view === 'room' && win && (status === 'countdown' || (status === 'racing' && now < win.start + 1000)) && (() => {
@@ -1668,7 +1782,7 @@
                       <h2 className="font-winner text-8xl text-black mb-4">WINNER!</h2>
                     </>
                   )}
-                  <div className="inline-block bg-black text-white font-black px-4 py-1 mb-5">結束原因：{END_REASON_TEXT[room.meta?.endReason] || '—'}</div>
+                  <div className="inline-block bg-black text-white font-black px-4 py-1 mb-5">結束原因：{endReasonText(room.meta?.endReason, roomTarget(room.meta), roomDuration(room.meta)) || '—'}</div>
                   {!aborted && (
                     <div className="bg-white border-4 border-black p-4 mb-6 shadow-[6px_6px_0px_#000]">
                       {top.length ? (
