@@ -328,7 +328,8 @@
         teams: ranking.map(r => {
           const key = teamKey(r.table);
           const leader = room.teams?.[key]?.leaderUid;
-          const players = Object.entries(room.players?.[key] || {}).map(([id, p]) => ({
+          // 只記錄真的有參賽的人：比賽結束時在線，或比賽中有回傳過分數（已離線、只是殘留在名單上的不算）
+          const players = Object.entries(room.players?.[key] || {}).filter(([id, p]) => p?.online || room.scores?.[key]?.[id]).map(([id, p]) => ({
             name: p?.name || '未命名車手',
             score: Number(room.scores?.[key]?.[id]?.s) || 0,
             leader: id === leader,
