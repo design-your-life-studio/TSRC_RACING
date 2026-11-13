@@ -145,6 +145,8 @@
       .pg-enter > :nth-child(3) { animation: hmPop .45s cubic-bezier(.2,1.6,.4,1) .3s backwards; }
       .pg-enter [data-table] { animation: pgCell .28s ease-out backwards; animation-delay: calc(.2s + var(--c) * 22ms); }
       .pg-rise { animation: pgRise .45s cubic-bezier(.2,.8,.2,1) backwards; }
+      .hz-pop { animation: hzPop 1.3s cubic-bezier(.2,1.5,.4,1) forwards; }
+      .hz-item { animation: hzFeed .35s cubic-bezier(.2,1.4,.4,1); }
       /* 比賽畫面切換（大廳 ⇄ 倒數／比賽）：標題收合、賽道區撐高、整體縮放同步平滑過渡 */
       .race-title { transition: grid-template-rows .6s cubic-bezier(.4,0,.2,1), opacity .35s ease; }
       .race-title.is-hidden { transition: grid-template-rows .6s cubic-bezier(.4,0,.2,1), opacity .25s ease; }
@@ -160,7 +162,16 @@
     .race-title > div { min-height: 0; overflow: hidden; }
     .race-title.is-hidden { grid-template-rows: 0fr; opacity: 0; }
     .room-exit { opacity: 0; pointer-events: none; }
+    /* 踩到障礙物：賽道上車頭彈出貼紙＋扣分（方案 E）*/
+    .hz-pop { position: absolute; top: -6px; z-index: 40; pointer-events: none; display: flex; align-items: center; gap: 2px; transform: translate(-50%, -26px); }
+    .hz-ico svg { width: 100%; height: 100%; display: block; }
+    .hz-pop b { font-family: 'Anton', sans-serif; font-size: 26px; line-height: 1; color: #e11d48; -webkit-text-stroke: 1.5px #000; paint-order: stroke fill; }
+    .hz-item .hz-ico svg { filter: none !important; }
     @keyframes pgRise { from { opacity: 0; transform: translateY(40px) scale(.97); } }
+    @keyframes hzPop { 0% { transform: translate(-50%, 6px) scale(.2); opacity: 0; } 18% { transform: translate(-50%, -30px) scale(1.15); opacity: 1; }
+      30% { transform: translate(-50%, -26px) scale(1) rotate(-6deg); } 40% { transform: translate(-50%, -26px) rotate(6deg); } 50% { transform: translate(-50%, -26px) rotate(0); }
+      80% { opacity: 1; } 100% { transform: translate(-50%, -40px); opacity: 0; } }
+    @keyframes hzFeed { from { transform: translateX(-24px); opacity: 0; } }
     @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
     @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
     @keyframes bgFlow { to { transform: translateX(-112px); } }
@@ -333,6 +344,29 @@
       const start = meta.countdownAt + COUNTDOWN_MS;
       return { countdownAt: meta.countdownAt, start, end: start + RACE_DURATION * 1000 };
     };
+    // 障礙物圖示（與手機端相同）：大螢幕顯示「哪一隊踩到了什麼」
+    const HAZ_SVG = (inner) => `<svg viewBox="0 0 64 64" width="88" height="88" style="overflow:visible;filter:drop-shadow(3px 3px 0 #000)"><g stroke="#000" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round">${inner}</g></svg>`;
+    const BANANA_SVG = HAZ_SVG(`
+      <path d="M26,36 C17,35 7,41 3,53 C3,56 4,58 6,58 C12,58 20,53 28,47 Z" fill="#facc15"/>
+      <path d="M25,40 C18,41 11,46 8,52 C13,53 19,50 27,46 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M3,53 C3,56 4,58 6,58 C7.5,56.5 6.5,54 3,53 Z" fill="#7c3f12"/>
+      <path d="M38,36 C47,35 57,41 61,53 C61,56 60,58 58,58 C52,58 44,53 36,47 Z" fill="#facc15"/>
+      <path d="M39,40 C46,41 53,46 56,52 C51,53 45,50 37,46 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M61,53 C61,56 60,58 58,58 C56.5,56.5 57.5,54 61,53 Z" fill="#7c3f12"/>
+      <path d="M24,44 C23,34 24,23 28,16 L36,16 C40,23 41,34 40,44 C36,47 28,47 24,44 Z" fill="#facc15"/>
+      <path d="M28.5,22 C27.5,28 27.5,34 28.5,40" fill="none" stroke="#fff" stroke-width="2.4" opacity=".9"/>
+      <path d="M29.5,7 L34.5,7 L34,17 L30,17 Z" fill="#7c3f12"/>
+      <path d="M27,44 C27,52 25,57 21,61 C28,63 37,61 40,55 C40,51 39,47 38,44 C34,46 30,46 27,44 Z" fill="#fde047"/>
+      <path d="M30,48 C30,53 28,57 26,59 C31,59 35,56 36,52 C36,50 36,49 35,48 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M21,61 C23,59.6 25,59.6 26.5,61.6 C24.5,62.6 22.5,62.6 21,61 Z" fill="#7c3f12"/>`);
+    const CONE_SVG = HAZ_SVG(`
+      <path d="M8,51 L56,51 L56,58 L8,58 Z" fill="#1f2328"/>
+      <path d="M29,8 Q32,4 35,8 L46,51 L18,51 Z" fill="#ff6a00"/>
+      <path d="M27.7,20 L36.3,20 L38.4,28 L25.6,28 Z" fill="#fff"/>
+      <path d="M23,36 L41,36 L43.2,44 L20.8,44 Z" fill="#fff"/>`);
+    const HAZARD_INFO = { banana: { name: '香蕉皮', pts: -10, svg: BANANA_SVG }, cone: { name: '三角錐', pts: -20, svg: CONE_SVG } };
+    const HAZ_FX_MS = 1300;   // 賽道上貼紙彈出的時間
+    const HAZ_FEED_MAX = 5;   // 左側障礙物紀錄最多顯示幾筆
     const END_REASON_TEXT = { target: `率先達到 ${TARGET_SCORE} 分`, timeout: `${RACE_DURATION} 秒時間到`, aborted: '工作人員緊急中止' };
 
     const playerUrl = (code) => {
@@ -358,11 +392,12 @@
         <circle cx="25" cy="30" r="12" /><circle cx="90" cy="30" r="12" />
       </>
     );
-    const F1CarSVG = ({ color = '#3b82f6', outline = true }) => (
-      <svg viewBox="0 0 120 45" className="w-full h-full" style={{ overflow: 'visible' }}>
+    // outline：加白色描邊＋斜下方黑影（貼紙風格），用在首頁與手機選色預覽；比賽賽道上不加
+    const F1CarSVG = ({ color = '#3b82f6', outline = false }) => (
+      <svg viewBox="0 0 120 45" className={`w-full h-full ${outline ? '' : 'drop-shadow-md'}`} style={outline ? { overflow: 'visible' } : undefined}>
         {outline && (
           <g strokeLinejoin="round" strokeLinecap="round">
-            {/* 斜下方黑影 → 白色描邊（直接畫在 SVG 裡，不用 CSS 濾鏡，動畫不會變慢）*/}
+            {/* 直接畫在 SVG 裡（不用 CSS 濾鏡），動畫不會變慢 */}
             <g transform="translate(2.4 2.8)" fill="#000" stroke="#000" strokeWidth="4.4" opacity="0.45">{CAR_SILHOUETTE}</g>
             <g fill="#fff" stroke="#fff" strokeWidth="4.4">{CAR_SILHOUETTE}</g>
           </g>
@@ -1010,6 +1045,35 @@
       const status = room?.meta?.status || 'lobby';
       const win = raceWindow(room?.meta);
       const sums = useMemo(() => teamSums(room), [room]);
+      // 踩到障礙物：比對每位玩家回傳的次數（hb 香蕉皮、hc 三角錐），有增加就在賽道彈出貼紙、左側加一筆紀錄
+      const [hazFx, setHazFx] = useState([]);
+      const [hazFeed, setHazFeed] = useState([]);
+      const hazPrevRef = useRef({ key: null, map: {} });
+      const hazIdRef = useRef(0);
+      useEffect(() => {
+        if (view !== 'room' || !room) return;
+        const key = `${roomCode}:${win?.countdownAt || 0}`;
+        const cur = {};
+        Object.entries(room.scores || {}).forEach(([tk, users]) => Object.entries(users || {}).forEach(([u, v]) => {
+          cur[`${tk}/${u}`] = { banana: Number(v?.hb) || 0, cone: Number(v?.hc) || 0 };
+        }));
+        const prev = hazPrevRef.current;
+        hazPrevRef.current = { key, map: cur };
+        if (prev.key !== key) { setHazFx([]); setHazFeed([]); return; }   // 新的一場（或大螢幕剛重新整理）：只記錄起點
+        if (status !== 'racing') return;
+        const events = [];
+        Object.entries(cur).forEach(([k, c]) => {
+          const p = prev.map[k] || { banana: 0, cone: 0 };
+          const table = Number(k.split('/')[0].slice(1));
+          ['banana', 'cone'].forEach(type => { for (let i = 0; i < Math.min(3, c[type] - p[type]); i++) events.push({ id: ++hazIdRef.current, table, type, delay: i * 180 }); });
+        });
+        if (!events.length) return;
+        setHazFeed(f => [...events.slice().reverse(), ...f].slice(0, HAZ_FEED_MAX));
+        events.forEach(ev => setTimeout(() => {
+          setHazFx(fx => [...fx, ev]);
+          setTimeout(() => setHazFx(fx => fx.filter(x => x.id !== ev.id)), HAZ_FX_MS);
+        }, ev.delay));
+      }, [room?.scores, status, view, roomCode, win?.countdownAt]);
       sumsRef.current = sums;
 
       // 伺服器時間差：所有裝置用同一個時鐘計算倒數
@@ -1369,7 +1433,7 @@
                         style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>2027</div>
                       <div ref={homeCarRef} className="hm-car relative w-full aspect-[120/45]">
                         <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
-                        <F1CarSVG color={CAR_COLORS[homeCarColor].hex} />
+                        <F1CarSVG color={CAR_COLORS[homeCarColor].hex} outline />
                       </div>
                     </div>
                     {/* START／FINISH 賽道線：放在 2027 大字下方，不重疊 */}
@@ -1477,6 +1541,20 @@
                       <div className="w-full h-1 bg-black my-6"></div>
                       <div className="font-black text-black text-lg">目標分數</div>
                       <div className="font-latin text-6xl text-black">{TARGET_SCORE}</div>
+                      {/* 障礙物紀錄：最新的在最上面 */}
+                      {(status === 'racing' || hazFeed.length > 0) && (
+                        <div data-testid="hazard-feed" className="w-full mt-4 flex flex-col gap-1.5 min-h-0 overflow-hidden">
+                          <div className="font-black text-black text-sm border-b-4 border-black pb-1">障礙物紀錄</div>
+                          {hazFeed.map(ev => (
+                            <div key={ev.id} data-hazard-item={ev.type} className="hz-item flex items-center gap-1.5 bg-white border-[3px] border-black px-2 py-0.5 font-black text-sm text-black">
+                              <span>#{pad2(ev.table)}</span>
+                              <span className="hz-ico w-6 h-6 shrink-0" dangerouslySetInnerHTML={{ __html: HAZARD_INFO[ev.type].svg }} />
+                              <span>{HAZARD_INFO[ev.type].name}</span>
+                              <span className="ml-auto text-[#e11d48]">{HAZARD_INFO[ev.type].pts}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-auto w-full bg-black text-[#facc15] font-mono font-black text-center py-2 border-4 border-black">ROOM {roomCode}</div>
                     </div>
                   ) : (
@@ -1521,6 +1599,13 @@
                                 <div data-lane-text={t} className={`absolute top-1/2 -translate-y-1/2 font-black text-black whitespace-nowrap ${inRace ? 'right-6 text-lg' : 'left-20 text-sm'}`}>
                                   {inRace ? `${score} 分` : st.count === 0 ? '等待加入...' : `${st.count} 人・已準備 ${st.ready}/${st.count}`}
                                 </div>
+                                {/* 踩到障礙物：車頭上方彈出貼紙＋扣分 */}
+                                {hazFx.filter(ev => ev.table === t).map(ev => (
+                                  <div key={ev.id} data-hazard-pop={ev.type} className="hz-pop" style={{ left: `calc(${val}% + 17px)` }}>
+                                    <span className="hz-ico w-[46px] h-[46px]" dangerouslySetInnerHTML={{ __html: HAZARD_INFO[ev.type].svg }} />
+                                    <b>{HAZARD_INFO[ev.type].pts}</b>
+                                  </div>
+                                ))}
                                 {/* 比賽進行中、還沒到終點的車子輪子會轉動 */}
                                 <div className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300 ease-out ${status === 'racing' && val < 100 ? 'race-wheels' : ''}`} style={{ left: `calc(${val}% - 15px)`, width: '60px', height: '35px' }}>
                                   <F1CarSVG color={color} />
