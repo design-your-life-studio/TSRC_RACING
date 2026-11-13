@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>綠能方程式 - Player UI</title>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- 設定 Firebase 的 Import Map -->
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+        "firebase/database": "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js"
+      }
+    }
+  </script>
+
+  <style>
+    /* 標題字「綠能方程式」：Dela Gothic One，只下載這五個字 */
+    @import url('https://fonts.googleapis.com/css2?family=Dela+Gothic+One&text=%E7%B6%A0%E8%83%BD%E6%96%B9%E7%A8%8B%E5%BC%8F&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Anton&family=Bungee&family=Space+Mono:wght@400;700&family=Righteous&display=swap');
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    /* 不可選取文字、拖曳圖片；手機長按不跳出選單、點擊不出現灰色底色（輸入框除外）*/
+    html, body, #root { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+    input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+    img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      margin: 0; padding: 0;
+      overscroll-behavior-y: contain;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* 背景：低對比藍色賽車格紋 */
+    .bg-grid {
+      background-color: #1e3a8a;
+      background-image: conic-gradient(rgba(255,255,255,0.06) 25%, transparent 0 50%, rgba(255,255,255,0.06) 0 75%, transparent 0);
+      background-size: 88px 88px;
+    }
+    .retro-shadow { box-shadow: 6px 6px 0px #000; }
+    .retro-shadow-sm { box-shadow: 3px 3px 0px #000; }
+    .retro-text-shadow { text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; }
+    /* ===== 標題字：簡單白色黑體 ===== */
+    .logo-plain { font-family: 'Dela Gothic One', 'Noto Sans TC', sans-serif; font-weight: 400; font-style: normal; color: #fff; letter-spacing: 0; line-height: 0.88; margin: 0.085em 0; display: block; width: fit-content; }
+    /* ===== 首頁字體系統：襯線粗黑標題 × 窄體英文 × 等寬資訊字 ===== */
+    .font-latin { font-family: 'Anton', 'Noto Sans TC', sans-serif; font-weight: 400; letter-spacing: 0.06em; }
+    .font-hud { font-family: 'Space Mono', ui-monospace, monospace; }
+    .font-winner { font-family: 'Bungee', 'Anton', sans-serif; font-weight: 400; letter-spacing: 0.02em; line-height: 1; }
+    .outline-num { font-family: 'Anton', sans-serif; color: transparent; -webkit-text-stroke: 1.5px rgba(255,255,255,0.14); line-height: 0.8; }
+
+    /* ===== 首頁動態效果（系統開啟「減少動態效果」時全部停用）===== */
+    .hm-speed { display: none; position: absolute; top: 18%; left: -30%; width: 34%; height: 64%; pointer-events: none; }
+    .hm-speed i { position: absolute; left: 0; height: 9%; min-height: 2px; border-radius: 9px; background: rgba(255,255,255,.75); }
+    .hm-lights { display: flex; gap: 0.35em; padding: 0.3em 0.4em; background: #111827; border: 4px solid #000; box-shadow: 5px 5px 0 #000; border-radius: 0.3em; }
+    .hm-light { width: 1em; height: 1em; border-radius: 50%; background: #3f1d24; border: 3px solid #000; transition: background .08s, box-shadow .08s; }
+    .hm-light.lit { background: #ef4444; box-shadow: 0 0 0.45em 0.1em rgba(239,68,68,.75); }
+    .hm-light.green { background: #22c55e; box-shadow: 0 0 0.45em 0.1em rgba(34,197,94,.8); }
+    @media (prefers-reduced-motion: no-preference) {
+      /* 1. 進場動畫 */
+      .hm-intro .hm-season { animation: hmFade .5s ease-out both; }
+      .hm-intro .hm-bar { transform-origin: left center; animation: hmBar .45s cubic-bezier(.2,.8,.2,1) .1s both; }
+      .hm-intro .hm-tagtxt { animation: hmSlide .45s cubic-bezier(.2,.8,.2,1) .35s both; }
+      .hm-intro .hm-ch { animation: hmStamp .42s cubic-bezier(.2,1.6,.4,1) both; animation-delay: calc(.55s + var(--i) * .09s); }
+      .hm-intro .hm-eng { animation: hmSlide .5s cubic-bezier(.2,.8,.2,1) 1.1s both; }
+      .hm-intro .hm-car { animation: hmDriveIn 1.1s cubic-bezier(.15,.85,.25,1) .6s both; }
+      .hm-intro .hm-num { animation: hmFade .8s ease-out .9s both; }
+      .hm-intro .hm-track { animation: hmFade .5s ease-out 1.3s both; }
+      .hm-intro .hm-lights { animation: hmFade .5s ease-out 1.5s both; }
+      .hm-intro .hm-pop { animation: hmPop .45s cubic-bezier(.2,1.6,.4,1) 1.4s both; }
+      /* 2. 持續動態：輪子、怠速、速度線、背景、虛線、按鈕呼吸 */
+      .hm-live .wheel { transform-box: fill-box; transform-origin: center; animation: hmSpin .45s linear infinite; }
+      .hm-live .hm-car svg { animation: hmIdle .14s steps(2) infinite alternate; }
+      .hm-live .hm-speed { display: block; }
+      .hm-live .hm-speed i { animation: hmStreak .6s linear infinite; }
+      .hm-live .hm-speed.sp-stripe i { animation: hmStripe .45s linear infinite; }
+      .hm-live .track-dash { animation: hmDash .5s linear infinite; }
+      .hm-live .hm-breath { animation: hmBreath 1.6s ease-in-out infinite; }
+      /* 3. 起跑燈循環：綠燈出發 → 從另一側開回來 */
+      .hm-car.race-out { animation: hmLaunch .75s cubic-bezier(.6,0,.9,.4) forwards !important; }
+      .hm-car.race-in { animation: hmDriveIn 1.3s cubic-bezier(.15,.85,.25,1) both !important; }
+      /* 4. 按下「開始遊戲」：賽車衝出畫面 */
+      .hm-launch .hm-car { animation: hmLaunch .55s cubic-bezier(.6,0,.9,.4) forwards !important; }
+      .hm-launch .hm-speed i, .hm-car.race-out .hm-speed i { animation-duration: .25s; }
+      .hm-launch .hm-speed.sp-stripe i, .hm-car.race-out .hm-speed.sp-stripe i { animation-duration: .25s; }
+      /* 離場：文字往左滑出、其他元素淡出，下一頁緊接著進場 */
+      .hm-launch .hm-exit { opacity: 0; transform: translateX(-5vw); transition: opacity .36s ease-in, transform .36s ease-in; }
+      .hm-launch .hm-fadeout { opacity: 0; transition: opacity .3s ease-in; }
+      /* 換頁進場 */
+      .pg-enter > * { animation: pgRise .5s cubic-bezier(.2,.8,.2,1) backwards; }
+      .pg-enter > :nth-child(1) { animation-name: pgDrop; }
+      .pg-enter > :nth-child(2) { animation-delay: .08s; }
+      .pg-enter > :nth-child(3) { animation: hmPop .45s cubic-bezier(.2,1.6,.4,1) .3s backwards; }
+      .pg-enter [data-table] { animation: pgCell .28s ease-out backwards; animation-delay: calc(.2s + var(--c) * 22ms); }
+      .pg-rise { animation: pgRise .45s cubic-bezier(.2,.8,.2,1) backwards; }
+      /* 背景格紋：每一頁都持續往左流動 */
+      .bg-flow { animation: bgFlow 2s linear infinite; will-change: transform; }
+    }
+    @keyframes pgRise { from { opacity: 0; transform: translateY(40px) scale(.97); } }
+    @keyframes pgDrop { from { opacity: 0; transform: translateY(-30px); } }
+    @keyframes pgCell { from { opacity: 0; transform: scale(.6); } }
+    @keyframes bgFlow { to { transform: translateX(-88px); } }
+    /* 背景格紋圖層：比畫面寬一格，往左移一格後無縫重複 */
+    .bg-flow { position: absolute; top: 0; bottom: 0; left: 0; width: calc(100% + 88px); pointer-events: none;
+      background-image: conic-gradient(rgba(255,255,255,0.06) 25%, transparent 0 50%, rgba(255,255,255,0.06) 0 75%, transparent 0);
+      background-size: 88px 88px; }
+    @keyframes hmFade { from { opacity: 0; } }
+    @keyframes hmBar { from { transform: scaleX(0); } }
+    @keyframes hmSlide { from { opacity: 0; transform: translateX(-40px); } }
+    @keyframes hmStamp { 0% { opacity: 0; transform: scale(2.2) rotate(-6deg); } 60% { opacity: 1; } 100% { opacity: 1; transform: scale(1) rotate(0); } }
+    @keyframes hmDriveIn { from { transform: translateX(-260%); } }
+    @keyframes hmPop { 0% { opacity: 0; transform: scale(.4); } 100% { opacity: 1; transform: scale(1); } }
+    @keyframes hmSpin { to { transform: rotate(360deg); } }   /* 車頭朝右往前開：輪子順時針轉 */
+    @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+    /* 速度感 04：黃、白、紅三條賽車線，從車尾往後拉長（與電腦端相同）*/
+    .hm-speed.sp-stripe { top: 30%; left: -36%; width: 40%; height: 46%; }
+    .hm-speed.sp-stripe i { left: auto; right: 0; height: 22%; border-radius: 0 999px 999px 0; background: none; }
+    @keyframes hmStripe { 0% { width: 0; opacity: 1; } 70% { opacity: 1; } 100% { width: 100%; opacity: 0; } }
+    @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
+    @keyframes hmDash { to { background-position: -18px 0; } }
+    @keyframes hmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    @keyframes hmLaunch { 0% { transform: translateX(0); } 15% { transform: translateX(-4%); } 100% { transform: translateX(260%); } }
+    .track-dash { background-image: linear-gradient(90deg, rgba(255,255,255,0.55) 50%, transparent 50%); background-size: 18px 3px; background-repeat: repeat-x; height: 3px; }
+    .flag { background-color: #fff; background-image: linear-gradient(45deg, #000 25%, transparent 25%), linear-gradient(-45deg, #000 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #000 75%), linear-gradient(-45deg, transparent 75%, #000 75%); background-size: 8px 8px; background-position: 0 0, 0 4px, 4px -4px, -4px 0; }
+    .retro-title-m { text-shadow: 3px 3px 0px #e11d48, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000; }
+
+    @keyframes floatUp {
+      0% { transform: translateY(150px) scale(0.5); opacity: 0; }
+      15% { opacity: 1; transform: translateY(0) scale(1); }
+      85% { opacity: 1; }
+      100% { transform: translateY(-100vh) scale(1); opacity: 0; }
+    }
+    .bubble-anim { animation: floatUp linear forwards; }
+    /* 冰凍：物件全部停住 */
+    .m-frozen .bubble-anim { animation-play-state: paused; }
+    /* 冰凍畫面（P1 霜凍玻璃）*/
+    .m-frost { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+    .m-frost .glass { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(186,230,253,.15) 30%, rgba(186,230,253,.8) 100%); }
+    .m-frost .edge { position: absolute; inset: 0; border: 12px solid rgba(255,255,255,.9); box-shadow: inset 0 0 0 4px #7dd3fc, inset 0 0 50px rgba(125,211,252,.9); }
+    .m-frost .txt { position: absolute; left: 50%; top: 46%; transform: translate(-50%,-50%); font-family: 'Bungee', sans-serif; font-size: 44px; color: #e0f2fe; -webkit-text-stroke: 2px #0c4a6e; paint-order: stroke fill; white-space: nowrap; animation: mPop .5s cubic-bezier(.2,1.6,.4,1); }
+    .m-frost .glass, .m-frost .edge { animation: mFrostFade 1s ease-in forwards; }
+    @keyframes mFrostFade { 0%, 70% { opacity: 1; } 100% { opacity: .2; } }
+    @keyframes mPop { from { transform: translate(-50%,-50%) scale(.3); } 40% { transform: translate(-50%,-50%) scale(1.1); } to { transform: translate(-50%,-50%) scale(1); } }
+    /* 連擊標示 */
+    .m-combo { animation: mPop2 .25s cubic-bezier(.2,1.6,.4,1); }
+    @keyframes mPop2 { from { transform: scale(1.4); } to { transform: scale(1); } }
+    /* 扣分回饋：紅光＋畫面晃動 */
+    .m-flash { background: rgba(225,29,72,.35); animation: mFlash .35s ease-out forwards; }
+    .shk-phone { animation: shkWiggle .6s ease-in-out infinite; transform-origin: 50% 85%; }
+    @keyframes shkWiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
+    .shk-bump { animation: shkBump .18s ease-out; }
+    @keyframes shkBump { from { transform: scale(1.18); } to { transform: scale(1); } }
+    .tap-big:active { transform: translate(6px, 6px); box-shadow: none; }
+    @keyframes mFlash { from { opacity: 1; } to { opacity: 0; } }
+    .m-shake { animation: mShake .3s; }
+    @keyframes mShake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+
+    @keyframes popScore {
+      0% { transform: scale(0.5) rotate(-15deg); opacity: 1; }
+      50% { transform: scale(1.5) rotate(10deg); opacity: 1; }
+      100% { transform: scale(2) translateY(-20px); opacity: 0; }
+    }
+    .score-pop {
+      animation: popScore 0.6s ease-out forwards;
+      text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+    }
+    @keyframes countPop { 0% { transform: scale(1.8); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(0.85); opacity: 0; } }
+    .count-pop { animation: countPop 1s ease-out forwards; }
+    @keyframes shakeX { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+    .shake { animation: shakeX 0.4s ease-in-out; }
+    .bulb-on-red { background: #ef4444; box-shadow: 0 0 8px 1px #ef4444; }
+    .bulb-on-yellow { background: #facc15; box-shadow: 0 0 8px 1px #facc15; }
+    .bulb-on-green { background: #22c55e; box-shadow: 0 0 8px 1px #22c55e; }
+  </style>
+</head>
+<body>
+  <script>
+    // 防止拖曳圖片／文字（輸入框除外）
+    document.addEventListener('dragstart', function (e) { if (!(e.target.closest && e.target.closest('input, textarea'))) e.preventDefault(); });
+  </script>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getDatabase, ref, get, set, update, remove, onValue, onDisconnect, serverTimestamp } from 'firebase/database';
+
+    const { useState, useEffect, useRef, useLayoutEffect } = React;
+
+    // ================= 遊戲設定（需與 index.html 一致）=================
+    const SPLASH_MS = 3000;        // 開場（載入）畫面停留時間（與大螢幕相同）
+    const SPLASH_FADE_MS = 700;    // 開場畫面淡出時間
+    const POINTS_PER_BUBBLE = 10;   // 原始得分邏輯：戳破一顆 +10
+    const TARGET_SCORE = 500;       // 任一組先到此分數，比賽立即結束
+    const RACE_DURATION = 30;       // 比賽秒數
+    const COUNTDOWN_MS = 3000;      // 3、2、1 倒數
+    const SPAWN_INTERVAL = 650;     // 物件生成間隔：每 0.65 秒一個
+    const FLOAT_MIN = 2, FLOAT_MAX = 3;   // 物件從底部飄到頂端的秒數（最後 10 秒衝刺時速度加倍）
+    const RUSH_MS = 10000;          // 最後 10 秒衝刺：物件速度加倍、出現頻率加倍
+    const FREEZE_MS = 1000;         // 點到冰凍：畫面凍住 1 秒（不扣分，期間不能點）
+    // 連擊加成：連續點中好泡泡，第 5 顆起 +15、第 10 顆起 +20；點到任何障礙物連擊歸零
+    const comboPoints = (n) => n >= 10 ? 20 : n >= 5 ? 15 : POINTS_PER_BUBBLE;
+    const HAZARD_RATIO = 0.4;       // 扣分物件比例 40%
+    const FLUSH_MS = 300;           // 分數回傳間隔
+    // 搖搖衝刺模式：每搖一下 +10；一秒最多算 8 下（兩下之間至少 125 毫秒）
+    const SHAKE_POINTS = 10;
+    const SHAKE_GAP_MS = 125;
+    const SHAKE_HIGH = 10;          // 加速度（扣掉重力）超過這個值算一次搖晃（m/s²）
+    const SHAKE_LOW = 4;            // 要先回落到這個值以下，才能算下一次（避免一次甩動被算成好幾下）
+    const MOTION_PROBE_MS = 1500;   // 開始監聽後這段時間內完全沒有感測資料 → 視為沒有感測器，改用狂點大按鈕
+    const MAX_STEP = 60;            // 單次回傳最多增加的分數（與資料庫規則一致）
+    const CAR_COLORS = [
+      { id: 'red',     hex: '#e11d48', name: '賽道紅' },
+      { id: 'orange',  hex: '#ff6a00', name: '螢光橘' },
+      { id: 'gold',    hex: '#c7a017', name: '金沙' },
+      { id: 'yellow',  hex: '#ffe500', name: '螢光黃' },
+      { id: 'lime',    hex: '#a6ff00', name: '螢光綠' },
+      { id: 'green',   hex: '#00b050', name: '翡翠綠' },
+      { id: 'mint',    hex: '#3dffc5', name: '螢光薄荷' },
+      { id: 'teal',    hex: '#00a39a', name: '湖水綠' },
+      { id: 'blue',    hex: '#1f5bff', name: '極速藍' },
+      { id: 'purple',  hex: '#b000ff', name: '螢光紫' },
+      { id: 'pink',    hex: '#ff3ea5', name: '螢光粉' },
+      { id: 'sakura',  hex: '#ffa8d6', name: '櫻花粉' },
+      { id: 'maroon',  hex: '#7a1030', name: '酒紅' },
+      { id: 'brown',   hex: '#7c3f12', name: '咖啡棕' },
+      { id: 'silver',  hex: '#b8c2cc', name: '銀河灰' },
+      { id: 'black',   hex: '#1f2328', name: '碳纖黑' },
+    ];
+    // 扣分物件（A 貼紙款）：香蕉皮 −10、三角錐 −20，各占扣分物件的一半
+    const HAZ_SVG = (inner) => `<svg viewBox="0 0 64 64" width="88" height="88" style="overflow:visible;filter:drop-shadow(3px 3px 0 #000)"><g stroke="#000" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round">${inner}</g></svg>`;
+    const BANANA_SVG = HAZ_SVG(`
+      <path d="M26,36 C17,35 7,41 3,53 C3,56 4,58 6,58 C12,58 20,53 28,47 Z" fill="#facc15"/>
+      <path d="M25,40 C18,41 11,46 8,52 C13,53 19,50 27,46 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M3,53 C3,56 4,58 6,58 C7.5,56.5 6.5,54 3,53 Z" fill="#7c3f12"/>
+      <path d="M38,36 C47,35 57,41 61,53 C61,56 60,58 58,58 C52,58 44,53 36,47 Z" fill="#facc15"/>
+      <path d="M39,40 C46,41 53,46 56,52 C51,53 45,50 37,46 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M61,53 C61,56 60,58 58,58 C56.5,56.5 57.5,54 61,53 Z" fill="#7c3f12"/>
+      <path d="M24,44 C23,34 24,23 28,16 L36,16 C40,23 41,34 40,44 C36,47 28,47 24,44 Z" fill="#facc15"/>
+      <path d="M28.5,22 C27.5,28 27.5,34 28.5,40" fill="none" stroke="#fff" stroke-width="2.4" opacity=".9"/>
+      <path d="M29.5,7 L34.5,7 L34,17 L30,17 Z" fill="#7c3f12"/>
+      <path d="M27,44 C27,52 25,57 21,61 C28,63 37,61 40,55 C40,51 39,47 38,44 C34,46 30,46 27,44 Z" fill="#fde047"/>
+      <path d="M30,48 C30,53 28,57 26,59 C31,59 35,56 36,52 C36,50 36,49 35,48 Z" fill="#fff7cc" stroke-width="1.8"/>
+      <path d="M21,61 C23,59.6 25,59.6 26.5,61.6 C24.5,62.6 22.5,62.6 21,61 Z" fill="#7c3f12"/>`);
+    const CONE_SVG = HAZ_SVG(`
+      <path d="M8,51 L56,51 L56,58 L8,58 Z" fill="#1f2328"/>
+      <path d="M29,8 Q32,4 35,8 L46,51 L18,51 Z" fill="#ff6a00"/>
+      <path d="M27.7,20 L36.3,20 L38.4,28 L25.6,28 Z" fill="#fff"/>
+      <path d="M23,36 L41,36 L43.2,44 L20.8,44 Z" fill="#fff"/>`);
+const ICE_SVG = HAZ_SVG(`
+  <path d="M14,22 L34,12 L54,22 L54,46 L34,56 L14,46 Z" fill="#bae6fd"/>
+  <path d="M14,22 L34,32 L54,22 L34,12 Z" fill="#e0f2fe"/>
+  <path d="M34,32 L34,56 L54,46 L54,22 Z" fill="#7dd3fc"/>
+  <path d="M20,26 L28,30" stroke="#fff" stroke-width="3"/>
+  <path d="M19,33 L19,40" stroke="#fff" stroke-width="3"/>
+  <path d="M42,36 L46,34 M44,42 L48,40" stroke="#e0f2fe" stroke-width="2.2"/>`);
+    // 障礙物三種各占三分之一
+    const HAZARD_TYPES = [
+      { hazard: 'banana', text: '香蕉皮', pts: -10, svg: BANANA_SVG },
+      { hazard: 'cone', text: '三角錐', pts: -20, svg: CONE_SVG },
+      { hazard: 'ice', text: '冰凍', pts: 0, svg: ICE_SVG },
+    ];
+    // 原始遊戲的三種泡泡（+10）
+    const BUBBLE_TYPES = [
+      { text: '低滾動阻力', color: 'bg-[#38bdf8]' },
+      { text: '耐磨', color: 'bg-[#f472b6]' },
+      { text: '濕地抓地力', color: 'bg-[#22c55e]' },
+    ];
+
+    // ================= Firebase =================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAVKXL-r-MM2NSs9f6T9LPX70b-CAgCXQY",
+      authDomain: "tsrc-racing.firebaseapp.com",
+      // 注意：請到 Firebase 主控台 → Realtime Database 複製實際網址貼在這裡（需與 index.html 相同）
+      databaseURL: "https://tsrc-racing-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "tsrc-racing",
+      storageBucket: "tsrc-racing.firebasestorage.app",
+      messagingSenderId: "859095220602",
+      appId: "1:859095220602:web:70c4d9be106383a97656c3",
+      measurementId: "G-1RLXCDE731"
+    };
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    // ================= 工具 =================
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const teamKey = (t) => `t${t}`;
+    const colorHex = (id) => (CAR_COLORS.find(c => c.id === id) || CAR_COLORS[8]).hex;
+    const teamStatus = (room, t) => {
+      const players = Object.values(room?.players?.[teamKey(t)] || {}).filter(p => p && p.online);
+      if (!players.length) return { light: 'red', count: 0, ready: 0 };
+      const ready = players.filter(p => p.ready).length;
+      return { light: ready === players.length ? 'green' : 'yellow', count: players.length, ready };
+    };
+    const urlRoom = (() => {
+      const v = new URLSearchParams(location.search).get('room') || '';
+      return /^\d{6}$/.test(v) ? v : '';
+    })();
+
+    const NAME_KEY = 'tsrc_nickname';            // 記住這支手機上次使用的暱稱
+    const NAME_MAX = 10;
+    const cleanName = (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
+    const loadName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } };
+    const saveName = (v) => { try { localStorage.setItem(NAME_KEY, v); } catch (e) {} };
+    const SESSION_KEY = 'tsrc_player_session';   // 記住這支手機所在的房間與桌號（斷線/重新整理可接回）
+    const loadSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { return null; } };
+    const saveSession = (v) => { try { v ? localStorage.setItem(SESSION_KEY, JSON.stringify(v)) : localStorage.removeItem(SESSION_KEY); } catch (e) {} };
+    // 隊長判定：原隊長仍在線就維持；否則由最早加入且在線的玩家接任（所有裝置算出的結果一致）
+    const resolveLeader = (members, currentUid) => {
+      const online = Object.entries(members || {}).filter(([, p]) => p && p.online);
+      if (currentUid && online.some(([id]) => id === currentUid)) return currentUid;
+      online.sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0) || (a[0] < b[0] ? -1 : 1));
+      return online.length ? online[0][0] : null;
+    };
+
+    // 把 Firebase 錯誤轉成看得懂的說明（方便現場排除問題）
+    const errText = (err) => {
+      const code = String(err?.code || err?.message || err || '');
+      if (/PERMISSION_DENIED|permission/i.test(code)) return '資料庫規則拒絕（請確認 Firebase 規則已更新為最新版）';
+      if (/network|offline|unavailable|disconnected/i.test(code)) return '網路連線中斷，請檢查網路';
+      return code || '未知錯誤';
+    };
+
+    // ================= UI 元件 =================
+    // 賽車外框（白色描邊與斜下方黑影用）：與車身同形狀的剪影，不含會轉動的輻條，所以不需要跟著動
+    const CAR_SILHOUETTE = (
+      <>
+        <path d="M10,35 L110,35 L115,25 L105,25 Z" /><path d="M5,15 L25,15 L25,25 L5,25 Z" /><path d="M10,5 L15,5 L15,35 L10,35 Z" />
+        <path d="M25,25 L45,15 L75,15 L100,25 Z" /><path d="M55,15 C55,5 70,5 70,15 Z" /><path d="M105,30 L115,30 L115,35 L105,35 Z" />
+        <circle cx="25" cy="30" r="12" /><circle cx="90" cy="30" r="12" />
+      </>
+    );
+    // outline：加白色描邊＋斜下方黑影（貼紙風格），用在首頁與手機選色預覽；比賽賽道上不加
+    const F1CarSVG = ({ color = '#3b82f6', outline = false }) => (
+      <svg viewBox="0 0 120 45" className={`w-full h-full ${outline ? '' : 'drop-shadow-md'}`} style={outline ? { overflow: 'visible' } : undefined}>
+        {outline && (
+          <g strokeLinejoin="round" strokeLinecap="round">
+            {/* 直接畫在 SVG 裡（不用 CSS 濾鏡），動畫不會變慢 */}
+            <g transform="translate(2.4 2.8)" fill="#000" stroke="#000" strokeWidth="4.4" opacity="0.45">{CAR_SILHOUETTE}</g>
+            <g fill="#fff" stroke="#fff" strokeWidth="4.4">{CAR_SILHOUETTE}</g>
+          </g>
+        )}
+        <g stroke="#000" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round">
+          <path d="M10,35 L110,35 L115,25 L105,25 Z" fill="#1e3a8a" />
+          <path d="M5,15 L25,15 L25,25 L5,25 Z" fill="#e11d48" />
+          <path d="M10,5 L15,5 L15,35 L10,35 Z" fill="#000" />
+          <path d="M25,25 L45,15 L75,15 L100,25 Z" fill={color} />
+          <path d="M55,15 C55,5 70,5 70,15 Z" fill="#fff" />
+          <path d="M40,25 L65,25 L65,30 L40,30 Z" fill="#22c55e" />
+          <path d="M105,30 L115,30 L115,35 L105,35 Z" fill="#e11d48" />
+          {/* 輪子（含十字輻條，首頁會轉動）*/}
+          <g className="wheel"><circle cx="25" cy="30" r="12" fill="#1f2937" /><circle cx="25" cy="30" r="6" fill="#facc15" /><path d="M25,24.5 V35.5 M19.5,30 H30.5" strokeWidth="1.4" /><circle cx="25" cy="30" r="2" fill="#000" /></g>
+          <g className="wheel"><circle cx="90" cy="30" r="12" fill="#1f2937" /><circle cx="90" cy="30" r="6" fill="#facc15" /><path d="M90,24.5 V35.5 M84.5,30 H95.5" strokeWidth="1.4" /><circle cx="90" cy="30" r="2" fill="#000" /></g>
+          <circle cx="50" cy="20" r="6" fill="#fff" />
+        </g>
+      </svg>
+    );
+
+    // 標題字元件：簡單白色黑體，無任何特效
+    const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
+
+    // 畫面自動縮放：內容超過螢幕高度時等比縮小，手機永遠不需要捲動
+    const FitArea = ({ children }) => {
+      const outer = useRef(null);
+      const inner = useRef(null);
+      useLayoutEffect(() => {
+        let raf = 0;
+        const fit = () => {
+          const o = outer.current, i = inner.current;
+          if (!o || !i) return;
+          const W = o.clientWidth, H = o.clientHeight;
+          if (!W || !H) return;
+          i.style.transform = 'none'; i.style.minHeight = '0px'; i.style.height = 'auto';
+          // 內容寬度會隨縮放比例改變（例如正方形色塊），所以反覆計算直到確實放得下
+          let s = 1;
+          for (let k = 0; k < 8; k++) {
+            i.style.width = (W / s) + 'px';
+            const h = i.scrollHeight;
+            if (h * s <= H + 0.5) break;
+            s = Math.max(0.3, s * (H / (h * s)) * 0.99);
+          }
+          i.style.width = (W / s) + 'px';
+          i.style.minHeight = (H / s) + 'px';
+          i.style.transform = `scale(${s})`;
+        };
+        const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { fit(); watchChild(); }); };
+        // 內容區本身尺寸改變（字型載入、文字寬度調整）也要重新縮放
+        const ro = new ResizeObserver(schedule);
+        let watched = null;
+        const watchChild = () => { const c = inner.current && inner.current.firstElementChild; if (c && c !== watched) { if (watched) ro.unobserve(watched); ro.observe(c); watched = c; } };
+        fit(); watchChild();
+        ro.observe(outer.current);
+        if (document.fonts) document.fonts.ready.then(schedule);
+        const mo = new MutationObserver(schedule);
+        mo.observe(inner.current, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('resize', schedule);
+        return () => { cancelAnimationFrame(raf); ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule); };
+      }, []);
+      return (
+        <div ref={outer} className="flex-1 relative overflow-hidden z-10">
+          <div ref={inner} className="absolute top-0 left-0 flex flex-col" style={{ transformOrigin: 'top left' }}>
+            {children}
+          </div>
+        </div>
+      );
+    };
+
+    // 冠軍獎盃（簡化版：紅色杯身＋白星，黑色底座）
+    const TrophyIcon = ({ size = 110 }) => (
+      <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
+        <g stroke="#000" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round">
+          <path d="M16 15 H10 C10 23 13 27 18 28" fill="none" />
+          <path d="M48 15 H54 C54 23 51 27 46 28" fill="none" />
+          <path d="M16 10 H48 V22 C48 32 41 38 32 38 C23 38 16 32 16 22 Z" fill="#e11d48" />
+          <rect x="29" y="38" width="6" height="8" fill="#000" />
+          <rect x="20" y="46" width="24" height="8" rx="2" fill="#000" />
+        </g>
+        <polygon points="32,15 34.1,20.4 39.8,20.6 35.3,24.1 36.9,29.6 32,26.4 27.1,29.6 28.7,24.1 24.2,20.6 29.9,20.4" fill="#fff" />
+      </svg>
+    );
+
+    // 讓英文副標的寬度剛好等於指定元素（例如「方程式」三個字）的寬度
+
+    // ===== 首頁動態效果 =====
+    const prefersReducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const LAUNCH_MS = 520;   // 按下「開始遊戲」後，賽車衝出、首頁離場的時間（之後下一頁接著進場）
+    // 背景格紋流動：所有圖層用同一個節奏（依目前時間對齊），疊在一起或換頁時都不會錯位
+    const BG_FLOW_MS = 2000;
+    const BgFlow = ({ className = '', style }) => {
+      const [delay] = useState(() => -(performance.now() % BG_FLOW_MS));
+      // 外層裁切：格紋圖層比畫面寬一格，包起來避免父層出現可捲動的多餘寬度（畫面被推歪）
+      return (
+        <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none" style={style}>
+          <div className={`bg-flow ${className}`} style={{ animationDelay: `${delay}ms` }}></div>
+        </div>
+      );
+    };
+    // 標題逐字彈入：每個字一個 span，--i 決定出場順序
+    const IntroChars = ({ text, from = 0 }) => [...text].map((c, i) => (
+      <span key={i} className="hm-ch inline-block" style={{ '--i': from + i }}>{c}</span>
+    ));
+
+    const FitWidthText = ({ targetRef, className = '', children }) => {
+      const ref = useRef(null);
+      const [size, setSize] = useState(null);
+      useLayoutEffect(() => {
+        let raf = 0;
+        const fit = () => {
+          const t = targetRef.current, el = ref.current;
+          if (!t || !el || !t.offsetWidth) return;
+          const prev = el.style.fontSize;
+          el.style.fontSize = '100px';
+          const natural = el.scrollWidth;
+          el.style.fontSize = prev;
+          if (natural) setSize(100 * t.offsetWidth / natural);
+        };
+        const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fit); };
+        fit();
+        if (document.fonts) document.fonts.ready.then(schedule);
+        const ro = new ResizeObserver(schedule);
+        if (targetRef.current) ro.observe(targetRef.current);
+        window.addEventListener('resize', schedule);
+        return () => { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('resize', schedule); };
+      }, []);
+      return <div ref={ref} className={`inline-block whitespace-nowrap leading-none ${className}`} style={{ fontSize: size ? `${size}px` : '1em', visibility: size ? 'visible' : 'hidden' }}>{children}</div>;
+    };
+
+    const TrafficLight = ({ light }) => (
+      <div className="flex gap-1 bg-black rounded-full px-1 py-0.5 shrink-0">
+        {['red', 'yellow', 'green'].map(c => (
+          <div key={c} className={`w-3 h-3 rounded-full ${light === c ? `bulb-on-${c}` : 'bg-gray-600'}`}></div>
+        ))}
+      </div>
+    );
+
+    /* ================= 按鈕 UI 規範 v1（與主控端相同；新增按鈕一律從這裡選樣式）=================
+         前進綠 #22C55E ＝ 主要動作（開始、加入、確認），滿版膠囊，每個畫面最多 1 個 → bigBtn('primary')
+         中性白          ＝ 一般操作，滿版膠囊                                       → bigBtn('neutral')
+         警示紅 #E11D48 ＝ 危險動作（白底紅字，按兩次）                             → bigBtn('danger')
+         選取黃 #FACC15 ＝ 已選取的項目（例如調色盤目前顏色的外圈）
+         停用灰 #9CA3AF ＝ 條件未達成
+         文字連結（底線、無外框）＝ 次要的離開類動作：淺色底用黑字、深色底用白字
+       共通：黑色 4px 外框＋黑色實心陰影；按下時往下沉、陰影消失。 */
+    // 手機彈出卡片（加入房間、輸入暱稱共用，確保高度與排版一致）
+    const CARD = 'bg-[#facc15] border-4 border-black retro-shadow p-5 w-full max-w-sm';
+    const CARD_TITLE = 'font-black text-black text-2xl mb-1';
+    const CARD_DESC = 'font-bold text-black text-sm leading-5 mb-3 min-h-[40px]';
+    const CARD_INPUT = 'w-full h-[88px] px-3 text-center font-black bg-white border-4 placeholder:text-gray-300 focus:outline-none';
+    const CARD_HINT = 'flex justify-between text-xs font-bold text-black/70 mt-1 mb-3';
+    const BTN_TONE = {
+      primary: 'bg-[#22c55e] text-white',
+      neutral: 'bg-white text-black',
+      danger: 'bg-white text-[#e11d48]',
+    };
+    const bigBtn = (tone = 'primary', enabled = true) => `w-full ${enabled ? `${BTN_TONE[tone] || BTN_TONE.primary} retro-shadow active:translate-y-[6px] active:shadow-none` : 'bg-gray-400 text-gray-700'} border-4 border-black rounded-full py-4 font-black text-2xl flex items-center justify-center gap-2 transition-all`;
+
+    // ================= 主程式 =================
+    const MobileApp = () => {
+      const [user, setUser] = useState(null);
+      const [connected, setConnected] = useState(false);
+      const [view, setView] = useState('loading'); // loading | home | join | pick | team
+      const [code, setCode] = useState(urlRoom);
+      const [roomCode, setRoomCode] = useState(null);
+      const [room, setRoom] = useState(null);
+      const [myTable, setMyTable] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState('');
+      const [pendingTable, setPendingTable] = useState(null);
+      const [showRank, setShowRank] = useState(false);   // 比賽結束後：查看本場排行
+      const [rankOpen, setRankOpen] = useState(null);     // 排行榜中展開的車隊（看每位成員分數）
+      const formulaRef = useRef(null);   // 首頁「方程式」三個字（英文副標對齊用）
+      // 開場（載入）畫面：一進網頁先顯示 3 秒再淡出；重新整理接回房間時略過
+      const splashTitleRef = useRef(null);
+      const [splash, setSplash] = useState(() => (loadSession() ? 'off' : 'show'));
+      useEffect(() => {
+        if (splash !== 'show') return;
+        const t1 = setTimeout(() => setSplash('fade'), SPLASH_MS);
+        const t2 = setTimeout(() => setSplash('off'), SPLASH_MS + SPLASH_FADE_MS);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+      }, []);
+      // 按下「開始遊戲」：賽車衝出畫面後再切到輸入房號畫面
+      const [launching, setLaunching] = useState(false);
+      // 首頁賽車循環（與電腦端相同節奏，但手機不顯示紅綠燈）：每 8.1 秒衝出畫面一次，1.4 秒後從左側開回來
+      const homeCarRef = useRef(null);
+      // 首頁賽車顏色：一開始是賽道紅，每次開走再進場就換下一色（16 色循環，與電腦端相同）
+      const [homeCarColor, setHomeCarColor] = useState(() => Math.max(0, CAR_COLORS.findIndex(c => c.id === 'red')));
+      const homeLive = view === 'home' && splash !== 'show';
+      useEffect(() => {
+        if (!homeLive || prefersReducedMotion()) return;
+        const RED_GAP = 700, HOLD_MS = 500, GREEN_MS = 1400, CYCLE_MS = 8100;
+        const GO_AT = RED_GAP * 4 + HOLD_MS;
+        let timers = [];
+        const move = (st) => {
+          const car = homeCarRef.current;
+          if (!car || car.closest('.hm-launch')) return;
+          if (st === 'go') { car.classList.remove('race-in'); void car.offsetWidth; car.classList.add('race-out'); }
+          else { setHomeCarColor(i => (i + 1) % CAR_COLORS.length); car.classList.remove('race-out'); void car.offsetWidth; car.classList.add('race-in'); }
+        };
+        const cycle = () => {
+          timers = [setTimeout(() => move('go'), GO_AT), setTimeout(() => move('back'), GO_AT + GREEN_MS), setTimeout(cycle, CYCLE_MS)];
+        };
+        const t0 = setTimeout(cycle, 2200 + RED_GAP);   // 等進場動畫結束再開始
+        return () => { clearTimeout(t0); timers.forEach(clearTimeout); };
+      }, [homeLive]);
+      const startGame = () => {
+        if (launching) return;
+        setError('');
+        if (prefersReducedMotion()) { setView('join'); return; }
+        setLaunching(true);
+        setTimeout(() => { setLaunching(false); setView('join'); }, LAUNCH_MS);
+      };
+      const [shake, setShake] = useState(0);
+      const codeInputRef = useRef(null);   // 正在輸入暱稱、準備加入的桌號
+      const [nameDraft, setNameDraft] = useState(loadName);
+      const [nameError, setNameError] = useState('');
+      // 比賽用
+      const [now, setNow] = useState(Date.now());
+      const [myScore, setMyScore] = useState(0);
+      const [bubbles, setBubbles] = useState([]);
+      const [frozen, setFrozen] = useState(0);     // 冰凍中（數字變化觸發畫面）
+      const frozenUntilRef = useRef(0);
+      const [combo, setCombo] = useState(0);       // 連擊數
+      const comboRef = useRef(0);
+      const raceEndRef = useRef(null);
+      const [pops, setPops] = useState([]);
+      const [hit, setHit] = useState(0);          // 被扣分的次數（觸發紅光）
+      const raceAreaRef = useRef(null);          // 比賽畫面（扣分時晃動）
+      const offsetRef = useRef(0);
+      const scoreRef = useRef(0);       // 本場個人累積分數（本機）
+      const sentRef = useRef(0);        // 已成功寫入資料庫的分數
+      const hitsRef = useRef({ hb: 0, hc: 0, hi: 0 });       // 自己踩到障礙物的次數（香蕉皮／三角錐／冰凍）
+      const sentHitsRef = useRef({ hb: 0, hc: 0, hi: 0 });   // 已送出的次數
+      const inflightRef = useRef(false);
+      const raceKeyRef = useRef(null);
+      const idRef = useRef(0);
+      // 搖搖衝刺
+      const [shakes, setShakes] = useState(0);            // 本場搖晃（或狂點）次數，用來顯示與觸發動畫
+      const lastShakeRef = useRef(0);
+      const armedRef = useRef(true);                      // 加速度回落後才重新上膛
+      const [motion, setMotion] = useState('probe');      // probe 偵測中｜on 有感測器｜off 沒感測器或未授權 → 狂點大按鈕
+      const gotMotionRef = useRef(false);
+      const [probeKey, setProbeKey] = useState(0);        // 取得權限後重新偵測一次
+
+      const uid = user?.uid;
+      const myKey = myTable ? teamKey(myTable) : null;
+      const status = room?.meta?.status;
+      useEffect(() => { if (status !== 'finished') { setShowRank(false); setRankOpen(null); } }, [status, roomCode]);
+      // 比賽結束後讀取一次全部成員的最終分數（比賽中不監聽別人的分數，避免手機負擔）
+      const [finalScores, setFinalScores] = useState(null);
+      useEffect(() => {
+        setFinalScores(null);
+        if (status !== 'finished' || !roomCode) return;
+        let alive = true;
+        get(ref(db, `rooms/${roomCode}/scores`)).then(snap => { if (alive) setFinalScores(snap.val() || {}); }).catch(() => {});
+        return () => { alive = false; };
+      }, [status, roomCode, room?.meta?.finishedAt]);   // 重賽或離開房間時關閉排行
+      const roomPath = roomCode ? `rooms/${roomCode}` : null;
+
+      // 1. 匿名登入 + 連線狀態（Firebase SDK 會自動斷線重連）
+      useEffect(() => {
+        signInAnonymously(auth).catch(err => { console.error(err); setError('登入失敗，請檢查網路後重新整理'); });
+        const unAuth = onAuthStateChanged(auth, setUser);
+        const unConn = onValue(ref(db, '.info/connected'), s => setConnected(s.val() === true));
+        return () => { unAuth(); unConn(); };
+      }, []);
+
+      // 2. 重新整理／斷線回來：接回上次的房間與車隊
+      useEffect(() => {
+        if (!uid) return;
+        const s = loadSession();
+        if (!s?.room) { setView('home'); return; }
+        get(ref(db, `rooms/${s.room}`)).then(snap => {
+          const r = snap.val();
+          if (!r || r.meta?.status === 'closed') { saveSession(null); setView('home'); return; }
+          setRoomCode(s.room);
+          if (s.table && r.players?.[teamKey(s.table)]?.[uid]) { setMyTable(s.table); setView('team'); }
+          else if (r.meta?.status === 'lobby') { setView('pick'); }
+          else { saveSession(null); setRoomCode(null); setView('join'); setError('比賽已經開始，目前無法加入'); }
+        }).catch(() => setView('home'));
+      }, [uid]);
+
+      // 3. 即時監聽房間（分開監聽各區塊，不接收其他玩家的逐筆分數，避免手機負擔過重）
+      useEffect(() => {
+        if (!roomCode) { setRoom(null); return; }
+        const PARTS = ['meta', 'tables', 'teams', 'players', 'teamScores', 'result'];
+        let latest = {};
+        const seen = new Set();
+        const offs = PARTS.map(part =>
+          onValue(ref(db, `rooms/${roomCode}/${part}`), s => {
+            latest = { ...latest, [part]: s.val() };
+            seen.add(part);
+            if (part === 'meta') {
+              const m = s.val();
+              if (!m || m.status === 'closed') {
+                saveSession(null);
+                setRoomCode(null); setMyTable(null);
+                setCode('');   // 清空上一場的房號，直接輸入新的
+                // 網址上的 ?room= 也一併移除，避免重新整理後又帶入舊房號
+                if (new URLSearchParams(location.search).has('room')) history.replaceState(null, '', location.pathname);
+                setView('join');
+                setError('房間已被主控端關閉，請輸入新的房間編號');
+                return;
+              }
+            }
+            if (seen.size === PARTS.length && latest.meta) setRoom(latest);   // 全部區塊都到齊才更新畫面
+          }, err => console.error(err))
+        );
+        return () => offs.forEach(off => off());
+      }, [roomCode]);
+
+      // 4. 在線狀態：斷線時伺服器自動標記離線，重新連線後恢復在線
+      useEffect(() => {
+        if (!roomPath || !myKey || !uid) return;
+        const pRef = ref(db, `${roomPath}/players/${myKey}/${uid}`);
+        const oRef = ref(db, `${roomPath}/players/${myKey}/${uid}/online`);
+        const un = onValue(ref(db, '.info/connected'), s => {
+          if (s.val() !== true) return;
+          onDisconnect(oRef).set(false)
+            .then(() => get(pRef))
+            .then(snap => { if (snap.exists() && snap.val().online !== true) return set(oRef, true); })
+            .catch(console.error);
+        });
+        return () => { un(); onDisconnect(oRef).cancel().catch(() => {}); };
+      }, [roomPath, myKey, uid]);
+
+      // 5. 自己的資料被移除（例如主控端重置）→ 回到選桌
+      useEffect(() => {
+        if (view === 'team' && room && myKey && uid && !room.players?.[myKey]?.[uid]) {
+          setMyTable(null);
+          saveSession({ room: roomCode });
+          setView(room.meta?.status === 'lobby' ? 'pick' : 'join');
+        }
+      }, [room, view, myKey, uid]);
+
+      // 6. 隊長接手：原隊長離開或離線時，下一位在線玩家自動成為隊長
+      useEffect(() => {
+        if (!room || status !== 'lobby' || !myKey || !uid) return;
+        const current = room.teams?.[myKey]?.leaderUid || null;
+        const desired = resolveLeader(room.players?.[myKey], current);
+        if (desired === uid && current !== uid) {
+          set(ref(db, `${roomPath}/teams/${myKey}/leaderUid`), uid).catch(console.error);
+        }
+      }, [room, myKey, uid]);
+
+      // ===== 比賽 =====
+      const countdownAt = room?.meta?.countdownAt || null;
+      const raceStart = countdownAt ? countdownAt + COUNTDOWN_MS : null;
+      const target = Number(room?.meta?.target) || TARGET_SCORE;      // 大螢幕「遊戲設定」的目標分數
+      const duration = Number(room?.meta?.duration) || RACE_DURATION; // 大螢幕「遊戲設定」的比賽秒數
+      const raceEnd = raceStart ? raceStart + duration * 1000 : null;
+      const mode = room?.meta?.mode === 'shake' ? 'shake' : 'tap';    // 大螢幕「遊戲設定」的遊玩模式
+      raceEndRef.current = raceEnd;
+      const inRace = view === 'team' && !!myKey && (status === 'countdown' || status === 'racing');
+      const playing = inRace && raceStart && now >= raceStart && now < raceEnd;
+      const isFrozen = playing && now < frozenUntilRef.current;   // now 每 0.1 秒更新，冰凍畫面會自動在 1 秒後消失
+
+      useEffect(() => onValue(ref(db, '.info/serverTimeOffset'), s => { offsetRef.current = Number(s.val()) || 0; }), []);
+
+      // 比賽中的時鐘（使用伺服器時間，所有裝置一致）
+      useEffect(() => {
+        if (!inRace) return;
+        const tick = () => setNow(Date.now() + offsetRef.current);
+        tick();
+        const id = setInterval(tick, 100);
+        return () => clearInterval(id);
+      }, [inRace]);
+
+      // 每場比賽開始時歸零；若是比賽中重新整理，從資料庫接回自己的分數
+      useEffect(() => {
+        if (!countdownAt || !myKey || !uid || raceKeyRef.current === countdownAt) return;
+        raceKeyRef.current = countdownAt;
+        scoreRef.current = 0; sentRef.current = 0; setMyScore(0);
+        hitsRef.current = { hb: 0, hc: 0, hi: 0 }; sentHitsRef.current = { hb: 0, hc: 0, hi: 0 };
+        comboRef.current = 0; setCombo(0); frozenUntilRef.current = 0; setFrozen(0);
+        setShakes(0); lastShakeRef.current = 0; armedRef.current = true;
+        get(ref(db, `${roomPath}/scores/${myKey}/${uid}`)).then(snap => {
+          const v = Number(snap.val()?.s) || 0;
+          // 重新整理後接續：障礙物次數只能增加，所以以伺服器上的次數為起點
+          const hb = Number(snap.val()?.hb) || 0, hc = Number(snap.val()?.hc) || 0, hi = Number(snap.val()?.hi) || 0;
+          hitsRef.current = { hb: Math.max(hitsRef.current.hb, hb), hc: Math.max(hitsRef.current.hc, hc), hi: Math.max(hitsRef.current.hi, hi) };
+          sentHitsRef.current = { hb: Math.max(sentHitsRef.current.hb, hb), hc: Math.max(sentHitsRef.current.hc, hc), hi: Math.max(sentHitsRef.current.hi, hi) };
+          if (v > sentRef.current) { sentRef.current = v; scoreRef.current = Math.max(scoreRef.current, v); setMyScore(scoreRef.current); }
+        }).catch(() => {});
+      }, [countdownAt, myKey, uid]);
+
+      // 分數回傳：比賽中每 0.3 秒送出一次累積分數（只送自己的；加分每次最多 +60，扣分直接送出）
+      useEffect(() => {
+        if (status !== 'racing' || !myKey || !uid) return;
+        const flush = () => {
+          const h = hitsRef.current, sh = sentHitsRef.current;
+          const hitsChanged = h.hb !== sh.hb || h.hc !== sh.hc || h.hi !== sh.hi;
+          if (inflightRef.current || (scoreRef.current === sentRef.current && !hitsChanged)) return;
+          const next = scoreRef.current > sentRef.current ? Math.min(scoreRef.current, sentRef.current + MAX_STEP) : scoreRef.current;
+          // 障礙物次數（hb 香蕉皮、hc 三角錐）：讓大螢幕知道踩到了什麼；每次最多 +10
+          const hits = { hb: Math.min(h.hb, sh.hb + 10), hc: Math.min(h.hc, sh.hc + 10), hi: Math.min(h.hi, sh.hi + 10) };
+          inflightRef.current = true;
+          set(ref(db, `${roomPath}/scores/${myKey}/${uid}`), { s: next, t: serverTimestamp(), ...hits })
+            .then(() => { sentRef.current = next; sentHitsRef.current = hits; })
+            .catch(err => console.warn('分數回傳失敗', err?.code || err))
+            .finally(() => { inflightRef.current = false; });
+        };
+        const id = setInterval(flush, FLUSH_MS);
+        return () => clearInterval(id);
+      }, [status, myKey, uid, roomPath]);
+
+      // 物件生成：每 0.65 秒一個，2～3 秒浮上去；40% 是障礙物（香蕉皮／三角錐／冰凍各三分之一）
+      // 最後 10 秒衝刺：出現頻率加倍、速度加倍；冰凍期間暫停生成
+      useEffect(() => {
+        if (!playing || mode === 'shake') { setBubbles([]); return; }
+        let timer = null, alive = true;
+        const spawn = () => {
+          if (!alive) return;
+          const t = Date.now() + offsetRef.current;
+          const rush = raceEndRef.current && t >= raceEndRef.current - RUSH_MS;
+          if (t >= frozenUntilRef.current) {
+            const pool = Math.random() < HAZARD_RATIO ? HAZARD_TYPES : BUBBLE_TYPES;
+            const type = pool[Math.floor(Math.random() * pool.length)];
+            const id = ++idRef.current;
+            const left = Math.max(10, Math.min(70, Math.random() * 80));
+            const duration = (FLOAT_MIN + Math.random() * (FLOAT_MAX - FLOAT_MIN)) / (rush ? 2 : 1);
+            setBubbles(prev => [...prev, { id, ...type, left, duration }]);
+          }
+          timer = setTimeout(spawn, rush ? SPAWN_INTERVAL / 2 : SPAWN_INTERVAL);
+        };
+        spawn();
+        return () => { alive = false; clearTimeout(timer); };
+      }, [playing, mode]);
+      // 物件飄到頂端（動畫結束）才移除：冰凍暫停時不會提早消失
+      const dropBubble = (id) => setBubbles(prev => prev.filter(b => b.id !== id));
+
+      // 戳物件：泡泡 +10；香蕉皮 −10、三角錐 −20（最低 0 分，不會變負分），按下瞬間就算
+      const handlePop = (e, bubble) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!playing) return;
+        if (Date.now() + offsetRef.current < frozenUntilRef.current) return;   // 冰凍中不能點
+        let pts, label = null;
+        if (bubble.hazard) {
+          comboRef.current = 0; setCombo(0);   // 點到任何障礙物：連擊歸零
+          pts = bubble.pts;
+        } else {
+          comboRef.current += 1; setCombo(comboRef.current);
+          pts = comboPoints(comboRef.current);
+        }
+        if (bubble.hazard === 'ice') {
+          // 冰凍：不扣分，畫面凍住 1 秒
+          hitsRef.current.hi++;
+          frozenUntilRef.current = Date.now() + offsetRef.current + FREEZE_MS;
+          setFrozen(f => f + 1);
+          setTimeout(() => setFrozen(f => f), FREEZE_MS + 20);
+          if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+          label = 'FREEZE';
+        } else {
+          if (navigator.vibrate) navigator.vibrate(pts < 0 ? [70, 40, 70] : 50);
+          scoreRef.current = Math.max(0, scoreRef.current + pts);
+          setMyScore(scoreRef.current);
+        }
+        if (pts < 0) {   // 扣分：畫面閃紅光並晃一下
+          setHit(h => h + 1);
+          if (bubble.hazard === 'banana') hitsRef.current.hb++; else hitsRef.current.hc++;
+          const el = raceAreaRef.current;
+          if (el) { el.classList.remove('m-shake'); void el.offsetWidth; el.classList.add('m-shake'); }
+        }
+        const rect = e.currentTarget.getBoundingClientRect();
+        const popId = ++idRef.current;
+        setPops(prev => [...prev, { id: popId, pts, label, x: rect.left + rect.width / 2, y: rect.top }]);
+        setBubbles(prev => prev.filter(b => b.id !== bubble.id));
+        setTimeout(() => setPops(prev => prev.filter(p => p.id !== popId)), 600);
+      };
+
+      // ===== 搖搖衝刺 =====
+      // 加一次分（搖晃或狂點共用）：一秒最多 8 下
+      const addShake = () => {
+        const t = Date.now() + offsetRef.current;
+        if (!raceEndRef.current || t >= raceEndRef.current || t - lastShakeRef.current < SHAKE_GAP_MS) return false;
+        lastShakeRef.current = t;
+        scoreRef.current += SHAKE_POINTS;
+        setMyScore(scoreRef.current);
+        setShakes(n => n + 1);
+        return true;
+      };
+      const playingRef = useRef(false);
+      playingRef.current = !!playing;
+      // iOS 需要使用者點擊後才能要求動作感測權限：在按「確認準備完成」或「啟用搖晃偵測」時呼叫
+      const requestMotion = () => {
+        try {
+          if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+            return DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') setProbeKey(k => k + 1); else setMotion('off'); return r; }).catch(() => { setMotion('off'); });
+          }
+        } catch (e) {}
+        return Promise.resolve('granted');
+      };
+      // 比賽期間（含倒數）監聽加速度；倒數時就先確認有沒有感測器
+      const shakeMode = inRace && mode === 'shake';
+      useEffect(() => {
+        if (!shakeMode) return;
+        if (typeof window.DeviceMotionEvent === 'undefined') { setMotion('off'); return; }
+        gotMotionRef.current = false;
+        setMotion(m => m === 'on' ? 'on' : 'probe');
+        const onMotion = (e) => {
+          const a = e.acceleration, g = e.accelerationIncludingGravity;
+          let mag = null;
+          if (a && a.x != null) mag = Math.hypot(a.x, a.y || 0, a.z || 0);
+          else if (g && g.x != null) mag = Math.abs(Math.hypot(g.x, g.y || 0, g.z || 0) - 9.81);
+          if (mag == null) return;
+          if (!gotMotionRef.current) { gotMotionRef.current = true; setMotion('on'); }
+          if (mag < SHAKE_LOW) { armedRef.current = true; return; }
+          if (mag > SHAKE_HIGH && armedRef.current && playingRef.current) {
+            if (addShake()) armedRef.current = false;
+          }
+        };
+        window.addEventListener('devicemotion', onMotion);
+        const probe = setTimeout(() => { if (!gotMotionRef.current) setMotion('off'); }, MOTION_PROBE_MS);
+        return () => { window.removeEventListener('devicemotion', onMotion); clearTimeout(probe); };
+      }, [shakeMode, probeKey]);
+      const needMotionPermission = typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function';
+      // 沒有感測器時：狂點大按鈕，每點一下 +10（同樣一秒最多 8 下）
+      const handleTapBig = (e) => {
+        e.preventDefault();
+        if (!playing) return;
+        if (addShake() && navigator.vibrate) navigator.vibrate(25);
+      };
+
+      // 確認準備／取消準備
+      const toggleReady = () => {
+        if (!myKey || !uid || status !== 'lobby') return;
+        const cur = !!room?.players?.[myKey]?.[uid]?.ready;
+        if (!cur && mode === 'shake') requestMotion();   // 搖搖衝刺：按準備時順便要求動作感測權限（iOS）
+        set(ref(db, `${roomPath}/players/${myKey}/${uid}/ready`), !cur).catch(err => { console.error(err); setError(`操作失敗：${errText(err)}`); });
+      };
+
+      // 驗證房間是否存在、是否開放加入
+      // 房號錯誤時：清空輸入、輸入框抖一下並自動對焦，方便直接重新輸入
+      const rejectCode = (msg) => {
+        setError(msg);
+        setCode('');
+        setShake(k => k + 1);
+        setTimeout(() => codeInputRef.current?.focus(), 0);
+      };
+
+      const joinRoom = async () => {
+        const c = code.trim();
+        if (!/^\d{6}$/.test(c)) { rejectCode('請輸入 6 位數房間編號'); return; }
+        if (!user) { setError('連線中，請稍候再試'); return; }
+        setBusy(true); setError('');
+        try {
+          const m = (await get(ref(db, `rooms/${c}/meta`))).val();
+          if (!m) rejectCode(`查無房間 ${c}，請重新輸入`);
+          else if (m.status === 'closed') rejectCode(`房間 ${c} 已關閉，請重新輸入`);
+          else if (m.status !== 'lobby') rejectCode(`房間 ${c} 比賽已開始，無法加入`);
+          else { setRoomCode(c); saveSession({ room: c }); setView('pick'); }
+        } catch (err) {
+          console.error(err);
+          setError(`連線失敗：${errText(err)}`);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      // 加入車隊（同時離開其他車隊，確保一人只在一組）
+      const joinTeam = async (t, rawName) => {
+        if (!room || status !== 'lobby' || !uid || busy) return;
+        const name = cleanName(rawName);
+        if (!name) { setNameError('請輸入暱稱'); return; }
+        setBusy(true); setError(''); setNameError('');
+        try {
+          const key = teamKey(t);
+          const updates = {};
+          Object.entries(room.players || {}).forEach(([k, members]) => {
+            if (k !== key && members?.[uid]) updates[`players/${k}/${uid}`] = null;
+          });
+          if (!room.players?.[key]?.[uid]) {
+            updates[`players/${key}/${uid}`] = { joinedAt: serverTimestamp(), online: true, ready: false, name };
+          }
+          if (Object.keys(updates).length) await update(ref(db, roomPath), updates);
+          saveName(name);
+          setPendingTable(null);
+          setMyTable(t);
+          saveSession({ room: roomCode, table: t });
+          setView('team');
+        } catch (err) {
+          console.error(err);
+          setError(`加入失敗：${errText(err)}`);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      // 離開車隊，回到選桌
+      const leaveTeam = async () => {
+        if (!myKey || !uid) return;
+        try {
+          await onDisconnect(ref(db, `${roomPath}/players/${myKey}/${uid}/online`)).cancel();
+          await remove(ref(db, `${roomPath}/players/${myKey}/${uid}`));
+        } catch (err) { console.error(err); }
+        setMyTable(null);
+        saveSession({ room: roomCode });
+        setView('pick');
+      };
+
+      // 隊長更換賽車顏色
+      const changeColor = (colorId) => {
+        if (!myKey || status !== 'lobby') return;
+        set(ref(db, `${roomPath}/teams/${myKey}/color`), colorId).catch(err => { console.error(err); setError(`換色失敗：${errText(err)}`); });
+      };
+
+      const goHome = async () => {
+        if (myKey) await leaveTeam();
+        saveSession(null);
+        setRoomCode(null); setRoom(null); setMyTable(null); setError('');
+        setView('home');
+      };
+
+      // 衍生資料
+      const tables = room?.tables || [];
+      const myTeam = myKey ? room?.teams?.[myKey] : null;
+      const myMembers = Object.entries(room?.players?.[myKey] || {})
+        .map(([id, p]) => ({ id, ...p }))
+        .sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0) || (a.id < b.id ? -1 : 1));
+      const leaderUid = myKey ? resolveLeader(room?.players?.[myKey], myTeam?.leaderUid || null) : null;
+      const isLeader = !!uid && leaderUid === uid;
+      const takenColors = new Set(tables.filter(t => t !== myTable).map(t => room?.teams?.[teamKey(t)]?.color));
+      const myColor = CAR_COLORS.find(c => c.id === myTeam?.color) || CAR_COLORS[8];
+
+      return (
+        <div className="w-full h-[100dvh] bg-[#1e3a8a] flex flex-col relative overflow-hidden">
+          {/* 背景格紋：每一頁持續流動 */}
+          <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden"><BgFlow /></div>
+
+          {/* ===== 開場（載入）畫面 ===== */}
+          {splash !== 'off' && (
+            <div data-testid="splash" className="absolute inset-0 z-[80] bg-[#1e3a8a] flex items-center justify-center overflow-hidden"
+              style={{ opacity: splash === 'fade' ? 0 : 1, transition: `opacity ${SPLASH_FADE_MS}ms ease`, pointerEvents: splash === 'fade' ? 'none' : 'auto' }}>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden"><BgFlow /></div>
+              <div className="relative flex flex-col items-center">
+                {/* 黃線＋標語：整體寬度與「綠能方程式」相同 */}
+                <FitWidthText targetRef={splashTitleRef} className="mb-3">
+                  <span className="inline-flex items-center gap-[0.6em] text-white">
+                    <span className="inline-block h-[0.12em] min-h-[3px] w-[2.2em] bg-[#facc15]"></span>
+                    <span className="inline-block font-medium tracking-[0.18em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
+                  </span>
+                </FitWidthText>
+                <h1 style={{ fontSize: 'min(15vw, 9vh, 72px)' }}><LogoText><span ref={splashTitleRef} className="inline-block">綠能方程式</span></LogoText></h1>
+              </div>
+            </div>
+          )}
+
+          {/* 頂部導覽列 */}
+          <div className="w-full bg-white border-b-4 border-black p-3 flex justify-between items-center z-20 shrink-0 relative">
+            <div className="flex gap-2">
+              <div className="w-4 h-4 rounded-full bg-[#e11d48] border-2 border-black"></div>
+              <div className="w-4 h-4 rounded-full bg-[#facc15] border-2 border-black"></div>
+              <div className="w-4 h-4 rounded-full bg-[#22c55e] border-2 border-black"></div>
+            </div>
+            <span className="font-black text-black text-lg tracking-wider font-['Righteous'] uppercase">Player_UI.exe</span>
+            <div className="w-10">
+              <div className={`w-3 h-3 rounded-full border-2 border-black ml-auto ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
+            </div>
+          </div>
+          {!connected && user && (
+            <div className="z-30 bg-[#e11d48] text-white font-black text-center text-sm py-1 border-b-4 border-black">連線中斷，正在重新連線...</div>
+          )}
+
+          <div className="flex-1 relative flex flex-col min-h-0">
+          {inRace ? (
+            <div ref={raceAreaRef} className="flex-1 flex flex-col relative z-10 overflow-hidden">
+              {/* 狀態列：組別、剩餘時間、即時分數 */}
+              <div className="p-3 shrink-0">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow p-2 flex justify-between items-center gap-2">
+                  <div className="bg-white border-4 border-black px-2 py-1 leading-tight">
+                    <div className="text-[10px] font-black">TEAM</div>
+                    <div className="font-black text-lg" data-testid="race-team">第 {pad2(myTable)} 桌</div>
+                  </div>
+                  <div className={`border-4 border-black px-3 py-1 text-center leading-none ${raceEnd && now >= raceEnd - 5000 && now < raceEnd ? 'bg-[#e11d48] text-white animate-pulse' : 'bg-black text-[#facc15]'}`}>
+                    <div className="text-[10px] font-black">TIME</div>
+                    <div className="font-latin text-3xl" data-testid="race-time">{raceStart && now >= raceStart ? Math.max(0, Math.ceil((raceEnd - now) / 1000)) : duration}</div>
+                  </div>
+                  <div className="text-right leading-tight">
+                    <div className="text-[10px] font-black">TEAM SCORE</div>
+                    <div className="bg-white border-4 border-black rounded-full px-3 inline-block">
+                      <span className="font-black text-2xl" data-testid="team-score">{room?.teamScores?.[myKey] || 0}</span>
+                    </div>
+                    <div className="text-[11px] font-black mt-0.5">我 +{myScore}</div>
+                  </div>
+                </div>
+                {/* 我方進度條 */}
+                <div className="mt-2 h-3 bg-white/20 border-2 border-black rounded-full overflow-hidden">
+                  <div className="h-full bg-[#22c55e] transition-all duration-300" style={{ width: `${Math.min(100, ((room?.teamScores?.[myKey] || 0) / target) * 100)}%` }}></div>
+                </div>
+              </div>
+
+              {/* 遊戲互動區（原始泡泡玩法）*/}
+              <div data-testid="game-area" className={`flex-1 relative touch-none select-none ${isFrozen ? 'm-frozen' : ''}`}>
+                {/* 搖搖衝刺：搖晃手機，每搖一下 +10；沒有感測器時改成狂點大按鈕 */}
+                {mode === 'shake' && (
+                  <div data-testid="shake-area" data-motion={motion} className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
+                    {motion !== 'off' ? (
+                      <>
+                        <svg className={playing ? 'shk-phone' : ''} width="96" height="140" viewBox="0 0 44 64" aria-hidden="true">
+                          <rect x="3" y="3" width="38" height="58" rx="7" fill="#facc15" stroke="#000" strokeWidth="4" />
+                          <rect x="9" y="11" width="26" height="36" fill="#38bdf8" stroke="#000" strokeWidth="3" />
+                          <circle cx="22" cy="53" r="3" fill="#000" />
+                        </svg>
+                        <div className="leading-none">
+                          <span key={shakes} data-testid="shake-count" className="shk-bump inline-block font-latin text-[88px] text-white" style={{ WebkitTextStroke: '3px #000' }}>{shakes}</span>
+                          <span className="font-black text-white text-2xl ml-2">下</span>
+                        </div>
+                        <div className="bg-white border-4 border-black retro-shadow-sm px-4 py-2 font-black text-black text-lg">用力搖晃手機！每搖一下 +10</div>
+                        <div className="text-white/80 font-bold text-sm">請握緊手機，小心不要甩出去</div>
+                      </>
+                    ) : (
+                      <>
+                        <button data-testid="tap-big" onPointerDown={handleTapBig}
+                          className="tap-big w-60 h-60 rounded-full bg-[#facc15] border-[6px] border-black shadow-[8px_8px_0_#000] flex flex-col items-center justify-center select-none transition-transform duration-75">
+                          <span key={shakes} data-testid="shake-count" className="shk-bump inline-block font-latin text-7xl text-black leading-none">{shakes}</span>
+                          <span className="font-black text-black text-3xl mt-2">狂點！</span>
+                        </button>
+                        <div className="bg-white border-4 border-black retro-shadow-sm px-4 py-2 font-black text-black text-sm">這支手機偵測不到搖晃，改成狂點按鈕<br />每點一下 +10</div>
+                        {needMotionPermission && <button onClick={requestMotion} className="font-black text-white underline">啟用搖晃偵測</button>}
+                      </>
+                    )}
+                  </div>
+                )}
+                {/* 連擊數：2 連擊以上顯示；5 連擊起 +15、10 連擊起 +20 */}
+                {combo >= 2 && (
+                  <div className="absolute inset-x-0 top-2 z-20 flex justify-center pointer-events-none">
+                    <div key={combo} data-testid="combo" className={`m-combo border-[3px] border-black px-3 py-0.5 font-black text-lg shadow-[3px_3px_0_#000] whitespace-nowrap ${combo >= 10 ? 'bg-[#e11d48] text-white' : combo >= 5 ? 'bg-[#facc15] text-black' : 'bg-white text-black'}`}>
+                      COMBO ×{combo}{combo >= 5 && <span className="ml-1.5">每顆 +{comboPoints(combo)}</span>}
+                    </div>
+                  </div>
+                )}
+                {bubbles.map(bubble => bubble.hazard ? (
+                  /* 扣分物件：香蕉皮／三角錐（貼紙款＋紅色扣分標籤）*/
+                  <div key={bubble.id} data-bubble data-hazard={bubble.hazard} onPointerDown={(e) => handlePop(e, bubble)} onAnimationEnd={() => dropBubble(bubble.id)}
+                    className="absolute bottom-0 w-24 h-24 flex items-center justify-center cursor-pointer bubble-anim"
+                    style={{ left: `${bubble.left}%`, animationDuration: `${bubble.duration}s` }}>
+                    <span className={`absolute -top-1.5 -right-2.5 z-10 ${bubble.hazard === 'ice' ? 'bg-[#38bdf8] text-black text-base pt-0.5' : 'bg-[#e11d48] text-white font-latin text-xl'} border-[3px] border-black rounded-full px-2 pb-0.5 font-black leading-none rotate-[8deg] shadow-[2px_2px_0_#000] pointer-events-none`}>{bubble.hazard === 'ice' ? '凍' : bubble.pts}</span>
+                    <div className="pointer-events-none" dangerouslySetInnerHTML={{ __html: bubble.svg }}></div>
+                  </div>
+                ) : (
+                  <div key={bubble.id} data-bubble onPointerDown={(e) => handlePop(e, bubble)} onAnimationEnd={() => dropBubble(bubble.id)}
+                    className={`absolute bottom-0 w-24 h-24 ${bubble.color} border-4 border-black rounded-full flex items-center justify-center p-2 cursor-pointer shadow-[inset_-4px_-4px_0px_rgba(0,0,0,0.2)] retro-shadow-sm bubble-anim`}
+                    style={{ left: `${bubble.left}%`, animationDuration: `${bubble.duration}s` }}>
+                    <span className="font-black text-black text-center text-sm leading-tight pointer-events-none">{bubble.text}</span>
+                    <div className="absolute top-2 left-2 w-4 h-4 bg-white rounded-full opacity-60 pointer-events-none"></div>
+                  </div>
+                ))}
+
+                {/* 扣分時紅光閃一下 */}
+                {hit > 0 && <div key={hit} className="m-flash absolute inset-0 pointer-events-none z-20"></div>}
+                {/* 冰凍 1 秒（P1 霜凍玻璃）*/}
+                {isFrozen && <div key={`frz-${frozen}`} data-testid="frozen" className="m-frost"><div className="glass"></div><div className="edge"></div><div className="txt">FROZEN!</div></div>}
+
+                {/* 倒數 3、2、1、GO */}
+                {raceStart && now < raceStart + 800 && (() => {
+                  const left = raceStart - now;
+                  const label = left > 0 ? String(Math.min(3, Math.ceil(left / 1000))) : 'GO!';
+                  return (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+                      <div key={label} data-testid="m-countdown" className={`count-pop font-latin text-[150px] leading-none ${label === 'GO!' ? 'text-[#22c55e]' : 'text-white'}`} style={{ WebkitTextStroke: '3px #000' }}>{label}</div>
+                    </div>
+                  );
+                })()}
+
+                {/* 時間到，等主控端結算 */}
+                {raceEnd && now >= raceEnd && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6">
+                    <div className="bg-[#e11d48] border-4 border-black retro-shadow p-6 text-center">
+                      <div className="font-latin text-5xl text-white">TIME UP!</div>
+                      <div className="font-black text-white mt-2 animate-pulse">結算中，請看大螢幕...</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 點擊特效 +10 */}
+              {pops.map(pop => (
+                <div key={pop.id} className="fixed z-50 pointer-events-none score-pop" style={{ left: pop.x - 20, top: pop.y - 20 }}>
+                  <span className={`text-3xl font-black italic ${pop.label ? 'text-[#7dd3fc]' : pop.pts < 0 ? 'text-[#e11d48]' : 'text-[#facc15]'}`} style={{ WebkitTextStroke: '1px #000' }}>{pop.label || (pop.pts < 0 ? pop.pts : `+${pop.pts}`)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+          <FitArea>
+
+            {view === 'loading' && (
+              <div className="flex-1 flex items-center justify-center text-white font-black animate-pulse">連線中...</div>
+            )}
+
+            {/* ===== 手機首頁（海報式排版）===== */}
+            {view === 'home' && (
+              <div className={`flex-1 flex flex-col px-6 pt-5 pb-6 text-white relative hm-live ${launching ? 'hm-launch' : splash === 'show' ? '' : 'hm-intro'}`}>
+                <div className="flex justify-start items-center font-hud font-bold text-[11px] tracking-[0.25em]">
+                  <span className="text-white/60 hm-season hm-fadeout">SEASON 2027</span>
+                </div>
+
+                <div className="flex-1 flex flex-col justify-center">
+                <div className="hm-exit relative z-[2]">
+                  {/* 黃線＋副標：整體寬度與「方程式」相同 */}
+                  <FitWidthText targetRef={formulaRef} className="mb-4">
+                    <span className="inline-flex items-center gap-[0.6em] text-white">
+                      <span className="hm-bar inline-block h-[0.12em] min-h-[3px] w-[2.2em] bg-[#facc15]"></span>
+                      <span className="hm-tagtxt inline-block font-medium tracking-[0.18em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
+                    </span>
+                  </FitWidthText>
+                  <h1 className="text-[78px]"><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
+                  <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-3 hm-eng">GREEN ENERGY FORMULA</FitWidthText>
+                </div>
+
+                <div className="relative mt-8 mb-8">
+                  <div className="outline-num hm-num hm-fadeout absolute right-[-8px] top-[-34px] text-[120px] select-none pointer-events-none">2027</div>
+                  <div ref={homeCarRef} className="hm-car relative w-full max-w-[320px] aspect-[120/45]">
+                    <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
+                    <F1CarSVG color={CAR_COLORS[homeCarColor].hex} outline />
+                  </div>
+                  <div className="hm-track hm-fadeout mt-3 flex items-center gap-2 font-hud font-bold text-[10px] tracking-[0.2em] text-white/70">
+                    <span>START</span><div className="flex-1 track-dash"></div><span>FINISH</span>
+                  </div>
+                </div>
+
+                <div className="hm-fadeout"><div className="hm-pop w-full max-w-[220px] mx-auto">
+                  <div className="hm-breath">
+                    <button onClick={startGame} className={`${bigBtn('primary')} !py-3 !text-xl`}>
+                      開始遊戲
+                    </button>
+                  </div>
+                </div></div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ===== 輸入房間編號 ===== */}
+            {view === 'join' && (
+              <div className="flex-1 flex items-center justify-center p-6">
+                {/* 與「加入車隊・輸入暱稱」視窗同一套樣式 */}
+                <div data-testid="join-card" className={`${CARD} pg-rise`}>
+                  <div className={CARD_TITLE}>加入賽事房間</div>
+                  <p className={CARD_DESC}>輸入大螢幕上的 6 位數房間編號，或直接掃描 QR Code。</p>
+                  <input key={`code-${shake}`} ref={codeInputRef} data-testid="code-input" type="text" inputMode="numeric" autoComplete="off" pattern="\d*" maxLength={6} value={code} autoFocus
+                    onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') joinRoom(); }}
+                    placeholder="000000"
+                    className={`${CARD_INPUT} font-mono tracking-[0.2em] ${shake && error ? 'border-[#e11d48] shake' : 'border-black'}`} style={{ fontSize: 40 }} />
+                  <div className={CARD_HINT}>
+                    <span>{error ? <span data-testid="join-error" className="text-[#e11d48]">{error}</span> : '房間編號由大螢幕產生'}</span>
+                    <span>{code.length}/6</span>
+                  </div>
+                  <button onClick={joinRoom} disabled={busy} className={bigBtn('primary', !busy)}>
+                    {busy ? '驗證中...' : '加入房間'}
+                  </button>
+                  <button onClick={goHome} className="w-full mt-3 font-black text-black underline">返回首頁</button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== 選擇車隊（桌號卡片）===== */}
+            {view === 'pick' && (
+              <div className="flex-1 flex flex-col p-4 gap-4">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-end">
+                  <div>
+                    <div className="font-black text-xs">ROOM</div>
+                    <div data-testid="joined-room" className="font-black font-mono text-2xl leading-8 tracking-widest">{roomCode}</div>
+                  </div>
+                  {/* 說明文字（不是按鈕）：和房間號碼同一行對齊 */}
+                  <span className="font-black text-lg leading-8 whitespace-nowrap">選擇你的車隊</span>
+                </div>
+                {error && <p className="text-black font-black bg-white border-2 border-black px-3 py-1 text-center">{error}</p>}
+
+                {!room ? (
+                  <div className="text-white font-black text-center animate-pulse mt-10">讀取房間中...</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {tables.map(t => {
+                      const st = teamStatus(room, t);
+                      return (
+                        <button key={t} data-card={t} onClick={() => { setNameError(''); setNameDraft(loadName()); setPendingTable(t); }} disabled={busy || status !== 'lobby'}
+                          className="bg-white border-4 border-black retro-shadow-sm p-2 min-[360px]:p-3 flex flex-col items-center active:translate-y-[3px] active:shadow-none transition-all">
+                          <div className="w-full flex justify-between items-center gap-1 mb-1">
+                            <span className="font-black text-base min-[360px]:text-lg min-[390px]:text-xl whitespace-nowrap">第 {pad2(t)} 桌</span>
+                            <span className="shrink-0"><TrafficLight light={st.light} /></span>
+                          </div>
+                          <div className="w-24 h-10 my-1"><F1CarSVG color={colorHex(room.teams?.[teamKey(t)]?.color)} /></div>
+                          <div className="font-bold text-sm">{st.count} 人加入</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-center text-white/80 font-bold text-sm">點選你所在的桌號加入車隊</p>
+                <button onClick={goHome} className="mx-auto font-black text-white underline">離開房間</button>
+              </div>
+            )}
+
+            {/* ===== 我的車隊：隊長選色／隊員查看 ===== */}
+            {view === 'team' && room && myTable && status === 'lobby' && (
+              <div className="flex-1 flex flex-col p-4 gap-4">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-center">
+                  <div>
+                    <div className="font-black text-xs">ROOM {roomCode}</div>
+                    <div data-testid="my-table" className="font-black text-2xl">第 {pad2(myTable)} 桌</div>
+                    <div className="font-bold text-sm truncate max-w-[12em]">{room.players?.[myKey]?.[uid]?.name || ''}</div>
+                  </div>
+                  <span data-testid="my-role" className={`border-4 border-black px-3 py-1 font-black ${isLeader ? 'bg-[#e11d48] text-white' : 'bg-white text-black'}`}>
+                    {isLeader ? '隊長' : '隊員'}
+                  </span>
+                </div>
+
+                {/* 賽車預覽 */}
+                {/* 不加底色，直接露出背景網格；賽車加白色描邊＋黑影確保每種顏色都看得清楚 */}
+                <div className="p-4 flex flex-col items-center">
+                  <div className="w-full max-w-[260px] aspect-[120/45]"><F1CarSVG color={myColor.hex} outline /></div>
+                  <div data-testid="my-color" className="mt-3 bg-white border-2 border-black px-3 py-0.5 font-black shadow-[3px_3px_0_#000]">{myColor.name}</div>
+                </div>
+
+                {/* 顏色：只有隊長可以改 */}
+                <div className="bg-white border-4 border-black retro-shadow-sm p-3">
+                  <div className="font-black mb-2">{isLeader ? '選擇賽車顏色（隊長專屬）' : '賽車顏色由隊長決定'}</div>
+                  {isLeader ? (
+                    <div className="grid grid-cols-8 gap-1.5">
+                      {CAR_COLORS.map(c => {
+                        const taken = takenColors.has(c.id);
+                        const on = myTeam?.color === c.id;
+                        return (
+                          <button key={c.id} data-color={c.id} onClick={() => changeColor(c.id)} disabled={taken || on || status !== 'lobby'}
+                            className={`relative aspect-square rounded-full border-[3px] border-black ${on ? 'ring-[3px] ring-[#facc15] ring-offset-1 ring-offset-black' : ''} ${taken ? 'opacity-25' : ''}`}
+                            style={{ background: c.hex }} title={taken ? `${c.name}（其他車隊使用中）` : c.name}>
+                            {on && <span className="absolute inset-0 flex items-center justify-center text-white font-black text-sm drop-shadow-[1px_1px_0_#000]">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm font-bold text-gray-600">隊長換色後會即時同步到你的手機與大螢幕</p>
+                  )}
+                  {isLeader && <p className="mt-2 text-xs font-bold text-gray-500">淡色為其他車隊已使用的顏色</p>}
+                </div>
+
+                {/* 本場遊玩模式（大螢幕「遊戲設定」決定）*/}
+                <div data-testid="m-mode" className="bg-white border-4 border-black retro-shadow-sm px-3 py-2 flex items-center gap-2">
+                  <span className="bg-black text-[#facc15] font-black text-sm px-2 py-0.5 shrink-0">{mode === 'shake' ? '搖搖衝刺' : '眼明手快'}</span>
+                  <span className="font-bold text-sm text-black">{mode === 'shake' ? '開賽後用力搖手機，每搖一下 +10' : '開賽後點擊泡泡累積積分'}</span>
+                </div>
+
+                {/* 組員名單 */}
+                <div className="bg-white border-4 border-black retro-shadow-sm p-3">
+                  <div className="font-black mb-2">車隊成員（{myMembers.filter(m => m.online).length} 人在線）</div>
+                  <ul className="space-y-1">
+                    {myMembers.map((m, i) => (
+                      <li key={m.id} data-member={m.id} className={`flex items-center gap-2 font-bold ${m.online ? '' : 'text-gray-400'}`}>
+                        <span className={`w-2.5 h-2.5 rounded-full ${m.online ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                        <span data-member-name className="truncate max-w-[9em]">{m.name || `車手 ${i + 1}`}</span>{m.id === uid && <span className="text-xs text-gray-500 shrink-0">（你）</span>}
+                        <span className="ml-auto flex gap-1">
+                          {m.id === leaderUid && <span className="text-xs bg-[#e11d48] text-white px-2 py-0.5 border-2 border-black">隊長</span>}
+                          {m.online && (m.ready
+                            ? <span className="text-xs bg-[#22c55e] text-black px-2 py-0.5 border-2 border-black">已準備</span>
+                            : <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 border-2 border-black">未準備</span>)}
+                          {!m.online && <span className="text-xs">離線</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {error && <p className="text-black font-black bg-white border-2 border-black px-3 py-1 text-center">{error}</p>}
+                {(() => {
+                  const meReady = !!room.players?.[myKey]?.[uid]?.ready;
+                  return (
+                    <button data-testid="ready-btn" onClick={toggleReady}
+                      className={`${bigBtn(meReady ? 'neutral' : 'primary')} !py-3 !text-xl`}>
+                      {meReady ? '已準備完成（點此取消）' : '確認準備完成'}
+                    </button>
+                  );
+                })()}
+                <p className="text-center text-white/80 font-bold text-xs">全隊按下準備後，遊戲才會開始</p>
+                <button onClick={leaveTeam} disabled={status !== 'lobby'} className="mx-auto font-black text-white underline">更換車隊</button>
+              </div>
+            )}
+            {/* ===== 比賽結束／中止（完整排名於第五階段加入）===== */}
+            {view === 'team' && room && myTable && (status === 'finished' || status === 'aborted') && (() => {
+              const ranking = Array.isArray(room.result?.ranking) ? room.result.ranking : Object.values(room.result?.ranking || {});
+              const mine = ranking.find(r => r.table === myTable);
+              const top = ranking.filter(r => r.rank === 1 && r.score > 0);
+              const aborted = status === 'aborted';
+              const iWon = !aborted && top.some(r => r.table === myTable);
+              return (
+                <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4">
+                  <div data-testid="m-result" className={`${iWon ? 'bg-[#facc15]' : 'bg-white'} border-4 border-black retro-shadow p-6 text-center w-full max-w-sm`}>
+                    {iWon && <div className="flex justify-center mb-2"><TrophyIcon size={84} /></div>}
+                    <div className="font-winner text-[42px] text-black mb-3">{aborted ? 'STOPPED' : iWon ? 'WINNER!' : 'FINISH'}</div>
+                    <div className="inline-block bg-black text-white font-black text-sm px-3 py-1 mb-4">
+                      {{ target: `率先達到 ${target} 分`, timeout: `${duration} 秒時間到`, aborted: '工作人員緊急中止' }[room.meta?.endReason] || '比賽結束'}
+                    </div>
+                    {!aborted && (
+                      <p className="font-black text-black text-lg mb-2">
+                        {top.length ? `冠軍：第 ${top.map(r => pad2(r.table)).join('、')} 桌` : '本場無人得分'}
+                      </p>
+                    )}
+                    <div className="border-t-4 border-black pt-3 mt-2 font-black text-black">
+                      第 {pad2(myTable)} 桌：{mine ? `${mine.score} 分` : '—'}{mine && !aborted ? `（第 ${mine.rank} 名）` : ''}
+                      <div className="text-sm font-bold text-gray-600 mt-1">你個人貢獻 {myScore} 分</div>
+                    </div>
+                  </div>
+                  <p className="text-white/80 font-bold text-sm text-center">{aborted ? '請等待工作人員重新開始' : '請看大螢幕公布結果'}</p>
+                  {!aborted && ranking.length > 0 && (
+                    <div className="w-full max-w-sm mt-auto">
+                      <button data-testid="open-rank" onClick={() => setShowRank(true)} className={bigBtn('primary')}>查看排行</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </FitArea>
+          )}
+          {/* 本場排行榜（只顯示這一場）：大螢幕結束本場後，手機會自動回到輸入房號畫面 */}
+          {showRank && view === 'team' && room && status === 'finished' && (() => {
+            const ranking = Array.isArray(room.result?.ranking) ? room.result.ranking : Object.values(room.result?.ranking || {});
+            const medal = (rk) => rk === 1 ? 'bg-[#facc15]' : rk === 2 ? 'bg-[#e2e8f0]' : rk === 3 ? 'bg-[#f59e0b]' : 'bg-white';
+            return (
+              <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                <div data-testid="rank-sheet" className="bg-[#facc15] border-4 border-black retro-shadow w-full max-w-sm max-h-full flex flex-col">
+                  <div className="px-4 pt-4 pb-2">
+                    <div className="font-black text-black text-2xl">本場排行</div>
+                    <div className="font-bold text-black/70 text-sm">ROOM {roomCode}・共 {ranking.length} 隊</div>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 flex flex-col gap-2">
+                    {ranking.map(r => {
+                      const mine = r.table === myTable;
+                      const tk = teamKey(r.table);
+                      const open = rankOpen === r.table;
+                      // 每位成員的分數：有加入名單的人都列出（沒得分顯示 0），依分數高到低
+                      const members = Object.entries(room.players?.[tk] || {}).filter(([u, pl]) => pl?.online || finalScores?.[tk]?.[u]).map(([u, pl]) => ({ uid: u, name: pl?.name || '—', score: Number(finalScores?.[tk]?.[u]?.s) || 0, leader: room.teams?.[tk]?.leaderUid === u, me: u === user?.uid }))
+                        .sort((a, b) => b.score - a.score);
+                      return (
+                        <div key={r.table} className={`border-4 border-black ${mine ? 'bg-[#fef08a] shadow-[3px_3px_0_#000]' : 'bg-white'}`}>
+                        <button type="button" data-rank-row={r.table} aria-expanded={open} onClick={() => setRankOpen(open ? null : r.table)} className="w-full flex items-center gap-2 px-2 py-1.5 text-left">
+                          <span className={`w-9 h-9 shrink-0 rounded-full border-[3px] border-black flex items-center justify-center font-black ${medal(r.rank)}`}>{r.rank}</span>
+                          <div className="flex-1 min-w-0 flex">
+                            {/* 桌號＋「我的車隊」標籤上下置中對齊、貼近桌號；暱稱只在展開後的成員清單顯示 */}
+                            <div className="flex flex-col items-center">
+                              <div className="font-black text-black text-lg leading-6 whitespace-nowrap">第 {pad2(r.table)} 桌</div>
+                              {mine && <span className="mt-0.5 text-[10px] leading-4 bg-[#e11d48] text-white font-black px-1 border-2 border-black whitespace-nowrap">我的車隊</span>}
+                            </div>
+                          </div>
+                          <span className="w-12 h-5 shrink-0"><F1CarSVG color={colorHex(room.teams?.[teamKey(r.table)]?.color)} /></span>
+                          <span className="w-14 text-right font-black text-black text-xl shrink-0">{r.score}</span>
+                          <span className="w-4 text-center font-black text-[#1e3a8a] text-xs shrink-0">{open ? '▲' : '▼'}</span>
+                        </button>
+                        {open && (
+                          <div data-rank-members={r.table} className="border-t-[3px] border-black bg-white px-2 py-1.5 flex flex-col gap-1">
+                            {members.length ? members.map((m, i) => (
+                              <div key={m.uid} data-member={m.name} className="flex items-center gap-2 text-sm font-black text-black">
+                                <span className="w-5 text-gray-500 text-xs">{i + 1}</span>
+                                <span className="flex-1 min-w-0 truncate">{m.name}{m.me && <span className="text-gray-500 font-bold">（你）</span>}</span>
+                                <span className="w-12 text-right">{m.score} 分</span>
+                                <span className="w-10 text-right text-xs font-bold text-gray-500">{r.score ? Math.round(m.score / r.score * 100) : 0}%</span>
+                              </div>
+                            )) : <div className="text-sm font-bold text-gray-500">沒有成員資料</div>}
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="p-3 border-t-4 border-black">
+                    <button onClick={() => setShowRank(false)} className="block mx-auto w-40 bg-white text-black border-4 border-black rounded-full py-2 font-black text-lg retro-shadow-sm active:translate-y-[3px] active:shadow-none transition-all">關閉</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+          {/* 加入車隊：輸入暱稱 */}
+          {pendingTable && view === 'pick' && (
+            <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
+              <div data-testid="name-dialog" className={CARD}>
+                <div className={CARD_TITLE}>加入第 {pad2(pendingTable)} 桌</div>
+                <p className={CARD_DESC}>
+                  {Object.values(room?.players?.[teamKey(pendingTable)] || {}).some(p => p?.online)
+                    ? '輸入你的暱稱，加入車隊一起衝刺！'
+                    : '你是第一位加入的車手，將成為隊長，可以決定賽車顏色！'}
+                </p>
+                <input data-testid="name-input" type="text" autoFocus maxLength={NAME_MAX} value={nameDraft} placeholder="請輸入暱稱"
+                  onChange={(e) => { setNameDraft(e.target.value); setNameError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') joinTeam(pendingTable, nameDraft); }}
+                  className={`${CARD_INPUT} border-black`} style={{ fontSize: 28 }} />
+                <div className={CARD_HINT}>
+                  <span>{nameError || error ? <span className="text-[#e11d48]">{nameError || error}</span> : '大螢幕成績紀錄會顯示暱稱'}</span>
+                  <span>{cleanName(nameDraft).length}/{NAME_MAX}</span>
+                </div>
+                <button data-testid="name-confirm" onClick={() => joinTeam(pendingTable, nameDraft)} disabled={busy}
+                  className={bigBtn('primary', !busy)}>{busy ? '加入中...' : '確認加入'}</button>
+                <button onClick={() => setPendingTable(null)} className="w-full mt-3 font-black text-black underline">取消</button>
+              </div>
+            </div>
+          )}
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<MobileApp />);
+  </script>
+</body>
+</html>
