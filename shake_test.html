@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>搖晃測試頁｜綠能方程式</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: #1e3a8a; color: #000; font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+  body { padding: 14px 14px 40px; min-height: 100vh; user-select: none; -webkit-user-select: none; }
+  .win { background: #fff; border: 4px solid #000; box-shadow: 6px 6px 0 #000; margin-bottom: 16px; }
+  .bar { display: flex; align-items: center; gap: 6px; background: #f1f5f9; border-bottom: 4px solid #000; padding: 8px 10px; }
+  .dot { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #000; }
+  .bar b { margin-left: 6px; font-size: 15px; letter-spacing: .06em; }
+  .pad { padding: 14px; }
+  h1 { color: #fff; font-size: 22px; margin: 4px 0 2px; }
+  .sub { color: rgba(255,255,255,.75); font-size: 13px; font-weight: 700; margin-bottom: 14px; }
+  .btn { display: block; width: 100%; padding: 14px; border: 4px solid #000; font-weight: 900; font-size: 20px; box-shadow: 4px 4px 0 #000; background: #22c55e; color: #fff; border-radius: 999px; }
+  .btn:active { transform: translate(4px,4px); box-shadow: none; }
+  .btn.ghost { background: #fff; color: #000; border-radius: 0; font-size: 16px; padding: 10px; }
+  .btn.yellow { background: #facc15; color: #000; border-radius: 0; font-size: 17px; padding: 12px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .label { font-size: 12px; font-weight: 900; color: #475569; }
+  .big { font-size: 64px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+  .mid { font-size: 30px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .unit { font-size: 14px; font-weight: 900; margin-left: 4px; }
+  .meter { position: relative; height: 34px; border: 3px solid #000; background: #e2e8f0; margin: 12px 0 22px; overflow: visible; }
+  .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #38bdf8; transition: width .05s linear; }
+  .fill.hot { background: #facc15; }
+  .peakmark { position: absolute; top: -3px; bottom: -3px; width: 3px; background: #e11d48; }
+  .line { position: absolute; top: -6px; bottom: -6px; width: 0; border-left: 3px dashed #000; }
+  .line span { position: absolute; top: 100%; transform: translateX(-50%); font-size: 11px; font-weight: 900; white-space: nowrap; margin-top: 2px; }
+  .count { text-align: center; padding: 6px 0 2px; }
+  .count .big { font-size: 96px; }
+  .bump { animation: bump .18s ease-out; }
+  @keyframes bump { from { transform: scale(1.2); } to { transform: scale(1); } }
+  .stat { border: 3px solid #000; padding: 8px 10px; background: #f8fafc; }
+  input[type=range] { width: 100%; accent-color: #000; }
+  .slider { margin-top: 10px; }
+  .slider .top { display: flex; justify-content: space-between; font-weight: 900; font-size: 14px; }
+  .log { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; }
+  .chip { border: 2px solid #000; padding: 2px 8px; font-weight: 900; font-size: 14px; background: #fef9c3; }
+  .note { font-size: 13px; font-weight: 700; color: #334155; line-height: 1.55; }
+  .warn { background: #e11d48; color: #fff; font-weight: 900; padding: 10px; border: 3px solid #000; margin-top: 10px; display: none; }
+  .tag { display: inline-block; background: #000; color: #facc15; font-weight: 900; font-size: 12px; padding: 2px 8px; }
+  .timer { text-align: center; font-weight: 900; font-size: 18px; margin-top: 10px; min-height: 24px; }
+</style>
+</head>
+<body>
+  <h1>搖晃測試頁</h1>
+  <div class="sub">測量這支手機搖晃時的加速度，判斷方式與正式遊戲「搖搖衝刺」相同（不連資料庫）</div>
+
+  <div class="win" id="startWin">
+    <div class="bar"><i class="dot" style="background:#e11d48"></i><i class="dot" style="background:#facc15"></i><i class="dot" style="background:#22c55e"></i><b>START.EXE</b></div>
+    <div class="pad">
+      <button class="btn" id="startBtn">開始測試</button>
+      <div class="warn" id="warn"></div>
+      <p class="note" style="margin:12px 0 0">iPhone 按下後會詢問「動作與方向」權限，請按「允許」。<br>請握緊手機，小心不要甩出去。</p>
+    </div>
+  </div>
+
+  <div id="main" style="display:none">
+    <div class="win">
+      <div class="bar"><i class="dot" style="background:#e11d48"></i><i class="dot" style="background:#facc15"></i><i class="dot" style="background:#22c55e"></i><b>LIVE.EXE</b></div>
+      <div class="pad">
+        <div class="row">
+          <div><div class="label">目前加速度</div><div><span class="big" id="now">0.0</span><span class="unit">m/s²</span></div></div>
+          <div style="text-align:right"><div class="label">本次搖晃最高</div><div><span class="mid" id="lastPeak">—</span></div></div>
+        </div>
+        <div class="meter" id="meter">
+          <div class="fill" id="fill"></div>
+          <div class="peakmark" id="peakmark" style="left:0"></div>
+          <div class="line" id="lowLine"><span id="lowTxt">回落 5</span></div>
+          <div class="line" id="highLine"><span id="highTxt">觸發 13</span></div>
+        </div>
+        <div class="note">資料來源：<span class="tag" id="src">等待感測資料…</span></div>
+      </div>
+    </div>
+
+    <div class="win">
+      <div class="bar"><i class="dot" style="background:#e11d48"></i><i class="dot" style="background:#facc15"></i><i class="dot" style="background:#22c55e"></i><b>COUNT.EXE</b></div>
+      <div class="pad">
+        <div class="count"><span class="big" id="count">0</span><span class="unit" style="font-size:22px">下</span></div>
+        <div class="row" style="margin-top:6px">
+          <div class="stat"><div class="label">最高加速度</div><div class="mid" id="maxAll">0.0</div></div>
+          <div class="stat"><div class="label">換算分數（×10）</div><div class="mid" id="score">0</div></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn yellow" id="runBtn">10 秒狂搖測試</button>
+          <button class="btn ghost" id="resetBtn">歸零</button>
+        </div>
+        <div class="timer" id="timer"></div>
+        <div class="label" style="margin-top:10px">最近 12 下的最高值（m/s²）</div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <div class="win">
+      <div class="bar"><i class="dot" style="background:#e11d48"></i><i class="dot" style="background:#facc15"></i><i class="dot" style="background:#22c55e"></i><b>SETTINGS.EXE</b></div>
+      <div class="pad">
+        <div class="note">正式遊戲目前是「觸發 13、回落 5、一秒最多 8 下」。可以拖動試試其他門檻，找出最適合的數值再告訴我。</div>
+        <div class="slider">
+          <div class="top"><span>觸發門檻</span><span id="highVal">13</span></div>
+          <input type="range" id="high" min="6" max="30" step="1" value="13">
+        </div>
+        <div class="slider">
+          <div class="top"><span>回落門檻</span><span id="lowVal">5</span></div>
+          <input type="range" id="low" min="1" max="12" step="1" value="5">
+        </div>
+        <button class="btn ghost" id="defBtn" style="margin-top:12px">恢復正式遊戲設定</button>
+        <p class="note" style="margin:12px 0 0" id="dev"></p>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const DEF_HIGH = 13, DEF_LOW = 5, GAP_MS = 125, METER_MAX = 40;
+  let high = DEF_HIGH, low = DEF_LOW;
+  let armed = true, last = 0, count = 0, maxAll = 0, curPeak = 0, peaks = [], got = false;
+  let runUntil = 0, runStartCount = 0, runTimer = null;
+  const $ = (id) => document.getElementById(id);
+  const pct = (v) => Math.min(100, v / METER_MAX * 100);
+
+  const placeLines = () => {
+    $('highLine').style.left = pct(high) + '%'; $('highTxt').textContent = '觸發 ' + high;
+    $('lowLine').style.left = pct(low) + '%'; $('lowTxt').textContent = '回落 ' + low;
+    $('highVal').textContent = high; $('lowVal').textContent = low;
+  };
+  placeLines();
+
+  const bump = (el) => { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); };
+  const render = () => {
+    $('count').textContent = count; $('score').textContent = count * 10;
+    $('maxAll').textContent = maxAll.toFixed(1);
+    $('log').innerHTML = peaks.map(p => `<span class="chip">${p.toFixed(1)}</span>`).join('');
+  };
+
+  // 與正式遊戲相同：有 acceleration（不含重力）就用；沒有就用含重力的總量減 9.81
+  const onMotion = (e) => {
+    const a = e.acceleration, g = e.accelerationIncludingGravity;
+    let mag = null, src = '';
+    if (a && a.x != null) { mag = Math.hypot(a.x, a.y || 0, a.z || 0); src = 'acceleration（不含重力，最準）'; }
+    else if (g && g.x != null) { mag = Math.abs(Math.hypot(g.x, g.y || 0, g.z || 0) - 9.81); src = '含重力數值估算（可能偏小）'; }
+    if (mag == null) return;
+    if (!got) { got = true; $('src').textContent = src; }
+    $('now').textContent = mag.toFixed(1);
+    $('fill').style.width = pct(mag) + '%';
+    $('fill').classList.toggle('hot', mag > high);
+    if (mag > maxAll) { maxAll = mag; $('maxAll').textContent = maxAll.toFixed(1); }
+    if (!armed) curPeak = Math.max(curPeak, mag);
+    if (mag < low) {
+      if (!armed && curPeak > 0) {   // 一次搖晃結束：記錄這下的最高值
+        $('lastPeak').textContent = curPeak.toFixed(1);
+        $('peakmark').style.left = pct(curPeak) + '%';
+        peaks = [curPeak, ...peaks].slice(0, 12); render();
+      }
+      armed = true; return;
+    }
+    const t = performance.now();
+    if (mag > high && armed && t - last >= GAP_MS) {
+      armed = false; last = t; curPeak = mag; count++;
+      $('count').textContent = count; $('score').textContent = count * 10; bump($('count'));
+      if (navigator.vibrate) navigator.vibrate(15);
+    }
+  };
+
+  const start = () => {
+    $('startWin').style.display = 'none'; $('main').style.display = 'block';
+    window.addEventListener('devicemotion', onMotion);
+    setTimeout(() => {
+      if (!got) { $('src').textContent = '偵測不到感測器（正式遊戲會改成狂點按鈕）'; }
+    }, 1500);
+  };
+  $('startBtn').addEventListener('click', () => {
+    if (typeof DeviceMotionEvent === 'undefined') { const w = $('warn'); w.style.display = 'block'; w.textContent = '這個瀏覽器不支援動作感測器（正式遊戲會改成狂點按鈕）'; return; }
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(r => {
+        if (r === 'granted') start();
+        else { const w = $('warn'); w.style.display = 'block'; w.textContent = '未取得權限。請完全關閉 Safari 後重新開啟此頁再試一次。'; }
+      }).catch(() => { const w = $('warn'); w.style.display = 'block'; w.textContent = '無法要求權限，請確認網址是 https 開頭'; });
+    } else start();
+  });
+
+  $('resetBtn').addEventListener('click', () => {
+    count = 0; maxAll = 0; peaks = []; curPeak = 0; armed = true;
+    $('lastPeak').textContent = '—'; $('peakmark').style.left = '0'; render();
+  });
+  $('runBtn').addEventListener('click', () => {
+    clearInterval(runTimer);
+    runStartCount = count; runUntil = performance.now() + 10000;
+    const tick = () => {
+      const left = runUntil - performance.now();
+      if (left <= 0) {
+        clearInterval(runTimer);
+        const n = count - runStartCount;
+        $('timer').textContent = `10 秒搖了 ${n} 下（每秒 ${(n / 10).toFixed(1)} 下）＝ ${n * 10} 分`;
+        if (navigator.vibrate) navigator.vibrate([100, 60, 100]);
+        return;
+      }
+      $('timer').textContent = `狂搖中… 剩 ${Math.ceil(left / 1000)} 秒（已 ${count - runStartCount} 下）`;
+    };
+    tick(); runTimer = setInterval(tick, 100);
+  });
+
+  $('high').addEventListener('input', e => { high = +e.target.value; if (low >= high) { low = high - 1; $('low').value = low; } placeLines(); });
+  $('low').addEventListener('input', e => { low = +e.target.value; if (low >= high) { high = low + 1; $('high').value = high; } placeLines(); });
+  $('defBtn').addEventListener('click', () => { high = DEF_HIGH; low = DEF_LOW; $('high').value = high; $('low').value = low; placeLines(); });
+
+  const ua = navigator.userAgent;
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : '其他';
+  $('dev').textContent = `裝置：${os}｜${ua.replace(/^Mozilla\/5\.0 \(|\).*$/g, '').slice(0, 80)}`;
+})();
+</script>
+</body>
+</html>
