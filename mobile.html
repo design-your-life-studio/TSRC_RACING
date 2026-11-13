@@ -210,8 +210,8 @@
     // 搖搖衝刺模式：每搖一下 +10；一秒最多算 8 下（兩下之間至少 125 毫秒）
     const SHAKE_POINTS = 10;
     const SHAKE_GAP_MS = 125;
-    const SHAKE_HIGH = 13;          // 加速度（扣掉重力）超過這個值算一次搖晃（m/s²）
-    const SHAKE_LOW = 5;            // 要先回落到這個值以下，才能算下一次（避免一次甩動被算成好幾下）
+    const SHAKE_HIGH = 10;          // 加速度（扣掉重力）超過這個值算一次搖晃（m/s²）
+    const SHAKE_LOW = 4;            // 要先回落到這個值以下，才能算下一次（避免一次甩動被算成好幾下）
     const MOTION_PROBE_MS = 1500;   // 開始監聽後這段時間內完全沒有感測資料 → 視為沒有感測器，改用狂點大按鈕
     const MAX_STEP = 60;            // 單次回傳最多增加的分數（與資料庫規則一致）
     const CAR_COLORS = [
