@@ -151,6 +151,11 @@
     @keyframes mPop2 { from { transform: scale(1.4); } to { transform: scale(1); } }
     /* 扣分回饋：紅光＋畫面晃動 */
     .m-flash { background: rgba(225,29,72,.35); animation: mFlash .35s ease-out forwards; }
+    .shk-phone { animation: shkWiggle .6s ease-in-out infinite; transform-origin: 50% 85%; }
+    @keyframes shkWiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
+    .shk-bump { animation: shkBump .18s ease-out; }
+    @keyframes shkBump { from { transform: scale(1.18); } to { transform: scale(1); } }
+    .tap-big:active { transform: translate(6px, 6px); box-shadow: none; }
     @keyframes mFlash { from { opacity: 1; } to { opacity: 0; } }
     .m-shake { animation: mShake .3s; }
     @keyframes mShake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
@@ -202,6 +207,12 @@
     const comboPoints = (n) => n >= 10 ? 20 : n >= 5 ? 15 : POINTS_PER_BUBBLE;
     const HAZARD_RATIO = 0.4;       // 扣分物件比例 40%
     const FLUSH_MS = 300;           // 分數回傳間隔
+    // 搖搖衝刺模式：每搖一下 +10；一秒最多算 8 下（兩下之間至少 125 毫秒）
+    const SHAKE_POINTS = 10;
+    const SHAKE_GAP_MS = 125;
+    const SHAKE_HIGH = 13;          // 加速度（扣掉重力）超過這個值算一次搖晃（m/s²）
+    const SHAKE_LOW = 5;            // 要先回落到這個值以下，才能算下一次（避免一次甩動被算成好幾下）
+    const MOTION_PROBE_MS = 1500;   // 開始監聽後這段時間內完全沒有感測資料 → 視為沒有感測器，改用狂點大按鈕
     const MAX_STEP = 60;            // 單次回傳最多增加的分數（與資料庫規則一致）
     const CAR_COLORS = [
       { id: 'red',     hex: '#e11d48', name: '賽道紅' },
@@ -568,6 +579,13 @@ const ICE_SVG = HAZ_SVG(`
       const inflightRef = useRef(false);
       const raceKeyRef = useRef(null);
       const idRef = useRef(0);
+      // 搖搖衝刺
+      const [shakes, setShakes] = useState(0);            // 本場搖晃（或狂點）次數，用來顯示與觸發動畫
+      const lastShakeRef = useRef(0);
+      const armedRef = useRef(true);                      // 加速度回落後才重新上膛
+      const [motion, setMotion] = useState('probe');      // probe 偵測中｜on 有感測器｜off 沒感測器或未授權 → 狂點大按鈕
+      const gotMotionRef = useRef(false);
+      const [probeKey, setProbeKey] = useState(0);        // 取得權限後重新偵測一次
 
       const uid = user?.uid;
       const myKey = myTable ? teamKey(myTable) : null;
@@ -676,6 +694,7 @@ const ICE_SVG = HAZ_SVG(`
       const target = Number(room?.meta?.target) || TARGET_SCORE;      // 大螢幕「遊戲設定」的目標分數
       const duration = Number(room?.meta?.duration) || RACE_DURATION; // 大螢幕「遊戲設定」的比賽秒數
       const raceEnd = raceStart ? raceStart + duration * 1000 : null;
+      const mode = room?.meta?.mode === 'shake' ? 'shake' : 'tap';    // 大螢幕「遊戲設定」的遊玩模式
       raceEndRef.current = raceEnd;
       const inRace = view === 'team' && !!myKey && (status === 'countdown' || status === 'racing');
       const playing = inRace && raceStart && now >= raceStart && now < raceEnd;
@@ -699,6 +718,7 @@ const ICE_SVG = HAZ_SVG(`
         scoreRef.current = 0; sentRef.current = 0; setMyScore(0);
         hitsRef.current = { hb: 0, hc: 0, hi: 0 }; sentHitsRef.current = { hb: 0, hc: 0, hi: 0 };
         comboRef.current = 0; setCombo(0); frozenUntilRef.current = 0; setFrozen(0);
+        setShakes(0); lastShakeRef.current = 0; armedRef.current = true;
         get(ref(db, `${roomPath}/scores/${myKey}/${uid}`)).then(snap => {
           const v = Number(snap.val()?.s) || 0;
           // 重新整理後接續：障礙物次數只能增加，所以以伺服器上的次數為起點
@@ -732,7 +752,7 @@ const ICE_SVG = HAZ_SVG(`
       // 物件生成：每 0.65 秒一個，2～3 秒浮上去；40% 是障礙物（香蕉皮／三角錐／冰凍各三分之一）
       // 最後 10 秒衝刺：出現頻率加倍、速度加倍；冰凍期間暫停生成
       useEffect(() => {
-        if (!playing) { setBubbles([]); return; }
+        if (!playing || mode === 'shake') { setBubbles([]); return; }
         let timer = null, alive = true;
         const spawn = () => {
           if (!alive) return;
@@ -750,7 +770,7 @@ const ICE_SVG = HAZ_SVG(`
         };
         spawn();
         return () => { alive = false; clearTimeout(timer); };
-      }, [playing]);
+      }, [playing, mode]);
       // 物件飄到頂端（動畫結束）才移除：冰凍暫停時不會提早消失
       const dropBubble = (id) => setBubbles(prev => prev.filter(b => b.id !== id));
 
@@ -793,10 +813,64 @@ const ICE_SVG = HAZ_SVG(`
         setTimeout(() => setPops(prev => prev.filter(p => p.id !== popId)), 600);
       };
 
+      // ===== 搖搖衝刺 =====
+      // 加一次分（搖晃或狂點共用）：一秒最多 8 下
+      const addShake = () => {
+        const t = Date.now() + offsetRef.current;
+        if (!raceEndRef.current || t >= raceEndRef.current || t - lastShakeRef.current < SHAKE_GAP_MS) return false;
+        lastShakeRef.current = t;
+        scoreRef.current += SHAKE_POINTS;
+        setMyScore(scoreRef.current);
+        setShakes(n => n + 1);
+        return true;
+      };
+      const playingRef = useRef(false);
+      playingRef.current = !!playing;
+      // iOS 需要使用者點擊後才能要求動作感測權限：在按「確認準備完成」或「啟用搖晃偵測」時呼叫
+      const requestMotion = () => {
+        try {
+          if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+            return DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') setProbeKey(k => k + 1); else setMotion('off'); return r; }).catch(() => { setMotion('off'); });
+          }
+        } catch (e) {}
+        return Promise.resolve('granted');
+      };
+      // 比賽期間（含倒數）監聽加速度；倒數時就先確認有沒有感測器
+      const shakeMode = inRace && mode === 'shake';
+      useEffect(() => {
+        if (!shakeMode) return;
+        if (typeof window.DeviceMotionEvent === 'undefined') { setMotion('off'); return; }
+        gotMotionRef.current = false;
+        setMotion(m => m === 'on' ? 'on' : 'probe');
+        const onMotion = (e) => {
+          const a = e.acceleration, g = e.accelerationIncludingGravity;
+          let mag = null;
+          if (a && a.x != null) mag = Math.hypot(a.x, a.y || 0, a.z || 0);
+          else if (g && g.x != null) mag = Math.abs(Math.hypot(g.x, g.y || 0, g.z || 0) - 9.81);
+          if (mag == null) return;
+          if (!gotMotionRef.current) { gotMotionRef.current = true; setMotion('on'); }
+          if (mag < SHAKE_LOW) { armedRef.current = true; return; }
+          if (mag > SHAKE_HIGH && armedRef.current && playingRef.current) {
+            if (addShake()) armedRef.current = false;
+          }
+        };
+        window.addEventListener('devicemotion', onMotion);
+        const probe = setTimeout(() => { if (!gotMotionRef.current) setMotion('off'); }, MOTION_PROBE_MS);
+        return () => { window.removeEventListener('devicemotion', onMotion); clearTimeout(probe); };
+      }, [shakeMode, probeKey]);
+      const needMotionPermission = typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function';
+      // 沒有感測器時：狂點大按鈕，每點一下 +10（同樣一秒最多 8 下）
+      const handleTapBig = (e) => {
+        e.preventDefault();
+        if (!playing) return;
+        if (addShake() && navigator.vibrate) navigator.vibrate(25);
+      };
+
       // 確認準備／取消準備
       const toggleReady = () => {
         if (!myKey || !uid || status !== 'lobby') return;
         const cur = !!room?.players?.[myKey]?.[uid]?.ready;
+        if (!cur && mode === 'shake') requestMotion();   // 搖搖衝刺：按準備時順便要求動作感測權限（iOS）
         set(ref(db, `${roomPath}/players/${myKey}/${uid}/ready`), !cur).catch(err => { console.error(err); setError(`操作失敗：${errText(err)}`); });
       };
 
@@ -962,6 +1036,36 @@ const ICE_SVG = HAZ_SVG(`
 
               {/* 遊戲互動區（原始泡泡玩法）*/}
               <div data-testid="game-area" className={`flex-1 relative touch-none select-none ${isFrozen ? 'm-frozen' : ''}`}>
+                {/* 搖搖衝刺：搖晃手機，每搖一下 +10；沒有感測器時改成狂點大按鈕 */}
+                {mode === 'shake' && (
+                  <div data-testid="shake-area" data-motion={motion} className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
+                    {motion !== 'off' ? (
+                      <>
+                        <svg className={playing ? 'shk-phone' : ''} width="96" height="140" viewBox="0 0 44 64" aria-hidden="true">
+                          <rect x="3" y="3" width="38" height="58" rx="7" fill="#facc15" stroke="#000" strokeWidth="4" />
+                          <rect x="9" y="11" width="26" height="36" fill="#38bdf8" stroke="#000" strokeWidth="3" />
+                          <circle cx="22" cy="53" r="3" fill="#000" />
+                        </svg>
+                        <div className="leading-none">
+                          <span key={shakes} data-testid="shake-count" className="shk-bump inline-block font-latin text-[88px] text-white" style={{ WebkitTextStroke: '3px #000' }}>{shakes}</span>
+                          <span className="font-black text-white text-2xl ml-2">下</span>
+                        </div>
+                        <div className="bg-white border-4 border-black retro-shadow-sm px-4 py-2 font-black text-black text-lg">用力搖晃手機！每搖一下 +10</div>
+                        <div className="text-white/80 font-bold text-sm">請握緊手機，小心不要甩出去</div>
+                      </>
+                    ) : (
+                      <>
+                        <button data-testid="tap-big" onPointerDown={handleTapBig}
+                          className="tap-big w-60 h-60 rounded-full bg-[#facc15] border-[6px] border-black shadow-[8px_8px_0_#000] flex flex-col items-center justify-center select-none transition-transform duration-75">
+                          <span key={shakes} data-testid="shake-count" className="shk-bump inline-block font-latin text-7xl text-black leading-none">{shakes}</span>
+                          <span className="font-black text-black text-3xl mt-2">狂點！</span>
+                        </button>
+                        <div className="bg-white border-4 border-black retro-shadow-sm px-4 py-2 font-black text-black text-sm">這支手機偵測不到搖晃，改成狂點按鈕<br />每點一下 +10</div>
+                        {needMotionPermission && <button onClick={requestMotion} className="font-black text-white underline">啟用搖晃偵測</button>}
+                      </>
+                    )}
+                  </div>
+                )}
                 {/* 連擊數：2 連擊以上顯示；5 連擊起 +15、10 連擊起 +20 */}
                 {combo >= 2 && (
                   <div className="absolute inset-x-0 top-2 z-20 flex justify-center pointer-events-none">
@@ -1175,6 +1279,12 @@ const ICE_SVG = HAZ_SVG(`
                     <p className="text-sm font-bold text-gray-600">隊長換色後會即時同步到你的手機與大螢幕</p>
                   )}
                   {isLeader && <p className="mt-2 text-xs font-bold text-gray-500">淡色為其他車隊已使用的顏色</p>}
+                </div>
+
+                {/* 本場遊玩模式（大螢幕「遊戲設定」決定）*/}
+                <div data-testid="m-mode" className="bg-white border-4 border-black retro-shadow-sm px-3 py-2 flex items-center gap-2">
+                  <span className="bg-black text-[#facc15] font-black text-sm px-2 py-0.5 shrink-0">{mode === 'shake' ? '搖搖衝刺' : '眼明手快'}</span>
+                  <span className="font-bold text-sm text-black">{mode === 'shake' ? '開賽後用力搖手機，每搖一下 +10' : '開賽後點擊泡泡累積積分'}</span>
                 </div>
 
                 {/* 組員名單 */}
