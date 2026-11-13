@@ -645,8 +645,43 @@ const ICE_SVG = HAZ_SVG(`
     const dangerBtn = 'px-6 py-3 bg-white text-[#e11d48] border-4 border-black font-black text-lg shadow-[4px_4px_0px_#000] hover:bg-[#ffe4e6] active:translate-y-[4px] active:shadow-none transition-all';
 
     // 成績紀錄視窗：總排行 + 各場成績，點組別可展開每位成員的貢獻分數
-    const ScoreHistory = ({ history, onClose, onClear }) => {
+    // 匯入的成績紀錄檔：只收格式正確的場次
+    const validRecord = (r) => r && typeof r.id === 'string' && Number.isFinite(Number(r.finishedAt)) && Array.isArray(r.teams)
+      && r.teams.every(t => t && Number.isFinite(Number(t.table)) && Number.isFinite(Number(t.score)) && Array.isArray(t.players || []));
+    const ScoreHistory = ({ history, onClose, onClear, onRestore }) => {
       const [sel, setSel] = useState('all');
+      const [notice, setNotice] = useState(null);   // { ok, text } 匯出／還原結果
+      const fileRef = useRef(null);
+      useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(id); }, [notice]);
+      // 匯出：下載成 JSON 檔，之後可用「還原成績紀錄」匯回（換電腦、清除瀏覽器資料前先備份）
+      const exportHistory = () => {
+        const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+        const name = `綠能方程式_成績紀錄_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}.json`;
+        const blob = new Blob([JSON.stringify({ app: 'tsrc-racing', version: 1, exportedAt: d.getTime(), records: history }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        setNotice({ ok: true, text: `已匯出 ${history.length} 場成績` });
+      };
+      // 還原：讀取匯出的 JSON 檔，與目前紀錄合併（同一場不會重複）
+      const restoreFile = (e) => {
+        const file = e.target.files?.[0]; e.target.value = '';
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(reader.result);
+            const list = Array.isArray(data) ? data : data?.records;
+            if (!Array.isArray(list)) throw new Error('format');
+            const recs = list.filter(validRecord);
+            if (!recs.length) throw new Error('empty');
+            const added = onRestore(recs);
+            setSel('all'); setOpenRow(null);
+            setNotice({ ok: true, text: added ? `已還原 ${added} 場成績${recs.length > added ? `（${recs.length - added} 場原本就有）` : ''}` : '檔案裡的場次都已經在紀錄中' });
+          } catch (err) { setNotice({ ok: false, text: '還原失敗：請選擇「匯出成績紀錄」產生的檔案' }); }
+        };
+        reader.onerror = () => setNotice({ ok: false, text: '還原失敗：無法讀取檔案' });
+        reader.readAsText(file);
+      };
       const [openRow, setOpenRow] = useState(null);
       // 按 Esc 關閉（全螢幕時 Esc 會先由瀏覽器退出全螢幕）；點視窗外的暗色區域也會關閉
       useEffect(() => {
@@ -657,18 +692,26 @@ const ICE_SVG = HAZ_SVG(`
       const chrono = [...history].sort((a, b) => a.finishedAt - b.finishedAt);
       const raceNo = new Map(chrono.map((r, i) => [r.id, i + 1]));
       const races = [...chrono].reverse();
-      const hhmm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+      const recMode = (r) => r.mode === 'shake' ? 'shake' : 'tap';   // 舊紀錄沒有模式，一律當作眼明手快
+      // 各模式總排行：有玩過該模式才出現
+      const modeBoards = MODE_OPTIONS.map(m => ({ ...m, recs: chrono.filter(r => recMode(r) === m.id) })).filter(m => m.recs.length > 0);
+      const isBoard = (v) => v === 'all' || v.startsWith('mode-');
+      const boardTitle = (v) => v === 'all' ? '全部組別總排行' : `${modeName(v.slice(5))}總排行`;
+      const p2 = (n) => String(n).padStart(2, '0');
+      const ymd = (t) => { const d = new Date(t); return `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())}`; };
+      const hhmm = (t) => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 
       let rows = [];
-      if (sel === 'all') {
-        rows = chrono.flatMap(r => r.teams.map(t => ({ ...t, recId: r.id, raceNo: raceNo.get(r.id) })))
+      if (isBoard(sel)) {
+        const src = sel === 'all' ? chrono : chrono.filter(r => `mode-${recMode(r)}` === sel);
+        rows = src.flatMap(r => r.teams.map(t => ({ ...t, recId: r.id, raceNo: raceNo.get(r.id), mode: recMode(r) })))
           .sort((a, b) => b.score - a.score || a.raceNo - b.raceNo || a.table - b.table);
         rows.forEach((r, i) => { r.rank = i > 0 && r.score === rows[i - 1].score ? rows[i - 1].rank : i + 1; });
       } else {
         const rec = history.find(r => r.id === sel);
-        rows = (rec?.teams || []).map(t => ({ ...t, recId: rec.id, raceNo: raceNo.get(rec.id) }));
+        rows = (rec?.teams || []).map(t => ({ ...t, recId: rec.id, raceNo: raceNo.get(rec.id), mode: recMode(rec) }));
       }
-      const current = sel === 'all' ? null : history.find(r => r.id === sel);
+      const current = isBoard(sel) ? null : history.find(r => r.id === sel);
       const medal = (rank) => rank === 1 ? 'bg-[#facc15]' : rank === 2 ? 'bg-gray-200' : rank === 3 ? 'bg-[#f59e0b]' : 'bg-white';
 
       return (
@@ -695,12 +738,19 @@ const ICE_SVG = HAZ_SVG(`
                   <div className="text-lg">全部組別總排行</div>
                   <div className="text-xs opacity-80">{chrono.length} 場・{chrono.reduce((a, r) => a + r.teams.length, 0)} 組</div>
                 </button>
+                {modeBoards.map(m => (
+                  <button key={m.id} data-race={`mode-${m.id}`} onClick={() => { setSel(`mode-${m.id}`); setOpenRow(null); }}
+                    className={`w-full text-left border-4 border-black p-3 font-black shadow-[3px_3px_0px_#000] ${sel === `mode-${m.id}` ? SEL_ON : `bg-white text-black ${SEL_HOVER}`}`}>
+                    <div className="text-lg">{m.name}總排行</div>
+                    <div className="text-xs opacity-80">{m.recs.length} 場・{m.recs.reduce((a, r) => a + r.teams.length, 0)} 組</div>
+                  </button>
+                ))}
                 {races.map(r => {
                   const champ = r.teams.filter(t => t.rank === 1 && t.score > 0).map(t => pad2(t.table)).join('、');
                   return (
                     <button key={r.id} data-race={r.id} onClick={() => { setSel(r.id); setOpenRow(null); }}
                       className={`w-full text-left border-4 border-black p-3 font-black shadow-[3px_3px_0px_#000] ${sel === r.id ? SEL_ON : `bg-white text-black ${SEL_HOVER}`}`}>
-                      <div className="flex justify-between items-baseline"><span className="text-lg">第 {raceNo.get(r.id)} 場</span><span className="font-hud text-xs">{hhmm(r.finishedAt)}</span></div>
+                      <div className="flex justify-between items-baseline"><span className="text-lg">第 {raceNo.get(r.id)} 場</span><span data-race-time className="font-hud text-[10px] whitespace-nowrap">{ymd(r.finishedAt)}<span className="ml-2">{hhmm(r.finishedAt)}</span></span></div>
                       <div className="text-xs opacity-80">房號 {r.room}・{r.teams.length} 組</div>
                       <div className="text-xs opacity-80">冠軍：{champ ? `第 ${champ} 桌` : '無'}</div>
                     </button>
@@ -718,22 +768,23 @@ const ICE_SVG = HAZ_SVG(`
                 ) : (
                   <>
                     <div className="flex items-baseline justify-between mb-4">
-                      <div className="font-black text-black text-2xl">{sel === 'all' ? '全部組別總排行' : `第 ${raceNo.get(sel)} 場成績`}</div>
-                      {current && <div className="font-bold text-gray-600">房號 {current.room}・{modeName(current.mode)}・{hhmm(current.finishedAt)} 結束・{endReasonText(current.reason, current.target, current.duration)}</div>}
+                      <div className="font-black text-black text-2xl">{isBoard(sel) ? boardTitle(sel) : `第 ${raceNo.get(sel)} 場成績`}</div>
+                      {current && <div className="font-bold text-gray-600">房號 {current.room}・{modeName(current.mode)}・{ymd(current.finishedAt)} {hhmm(current.finishedAt)} 結束・{endReasonText(current.reason, current.target, current.duration)}</div>}
                     </div>
-                    <div className="grid grid-cols-[64px_96px_80px_1fr_120px_120px] items-center gap-3 px-3 pb-2 border-b-4 border-black font-black text-sm text-gray-600">
-                      <span>名次</span><span>桌號</span><span>賽車</span><span>{sel === 'all' ? '場次' : '成員'}</span><span className="text-right">總分</span><span></span>
+                    <div className="grid grid-cols-[64px_96px_80px_1fr_120px_120px_120px] items-center gap-3 px-3 pb-2 border-b-4 border-black font-black text-sm text-gray-600">
+                      <span>名次</span><span>桌號</span><span>賽車</span><span>{isBoard(sel) ? '場次' : '成員'}</span><span>模式</span><span className="text-right">總分</span><span></span>
                     </div>
                     {rows.map(r => {
                       const rowKey = `${r.recId}-${r.table}`;
                       const open = openRow === rowKey;
                       return (
                         <div key={rowKey} data-history-row={r.table} className="border-b-2 border-black/20">
-                          <button onClick={() => setOpenRow(open ? null : rowKey)} className={`w-full grid grid-cols-[64px_96px_80px_1fr_120px_120px] items-center gap-3 px-3 py-2 text-left hover:bg-[#fef9c3] ${open ? 'bg-[#fef9c3]' : ''}`}>
+                          <button onClick={() => setOpenRow(open ? null : rowKey)} className={`w-full grid grid-cols-[64px_96px_80px_1fr_120px_120px_120px] items-center gap-3 px-3 py-2 text-left hover:bg-[#fef9c3] ${open ? 'bg-[#fef9c3]' : ''}`}>
                             <span className={`w-11 h-11 rounded-full border-4 border-black flex items-center justify-center font-black text-lg ${medal(r.rank)}`}>{r.rank}</span>
                             <span className="font-black text-2xl">#{pad2(r.table)}</span>
                             <span className="w-16 h-7"><F1CarSVG color={colorHex(r.color)} /></span>
-                            <span className="font-bold text-gray-700 truncate">{sel === 'all' ? `第 ${r.raceNo} 場` : `${r.players.length} 位車手`}</span>
+                            <span className="font-bold text-gray-700 truncate">{isBoard(sel) ? `第 ${r.raceNo} 場` : `${r.players.length} 位車手`}</span>
+                            <span data-row-mode className="font-bold text-gray-700">{modeName(r.mode)}</span>
                             <span className="font-latin text-3xl text-right">{r.score}</span>
                             <span className="text-right font-black text-sm text-[#1e3a8a]">{open ? '收合 ▲' : '成員貢獻 ▼'}</span>
                           </button>
@@ -760,8 +811,13 @@ const ICE_SVG = HAZ_SVG(`
             </div>
 
             <div className="border-t-4 border-black bg-[#f1f5f9] p-3 flex justify-between items-center shrink-0">
-              <span className="font-bold text-gray-600 text-sm">成績紀錄存在這台電腦的瀏覽器；緊急中止的場次不列入</span>
+              {notice
+                ? <span data-testid="history-notice" className={`font-black text-sm ${notice.ok ? 'text-[#15803d]' : 'text-[#e11d48]'}`}>{notice.text}</span>
+                : <span className="font-bold text-gray-600 text-sm">成績紀錄存在這台電腦的瀏覽器；緊急中止的場次不列入</span>}
               <div className="flex gap-3">
+                <input ref={fileRef} data-testid="restore-input" type="file" accept=".json,application/json" className="hidden" onChange={restoreFile} />
+                <button data-testid="restore-history" onClick={() => fileRef.current?.click()} className={ghostBtn}>還原成績紀錄</button>
+                {history.length > 0 && <button data-testid="export-history" onClick={exportHistory} className={ghostBtn}>匯出成績紀錄</button>}
                 {history.length > 0 && <ConfirmButton onConfirm={onClear} confirmText="再按一次確認清除" className={dangerBtn}>清除成績紀錄</ConfirmButton>}
                 <button onClick={onClose} className={ghostBtn}>關閉</button>
               </div>
@@ -1462,6 +1518,15 @@ const ICE_SVG = HAZ_SVG(`
 
       const resetRaced = () => { setRaced([]); saveRaced([]); setUnmarkArmed(null); };
       const clearHistory = () => { setHistory([]); saveHistory([]); };
+      // 還原：合併匯入的場次（以場次 id 判斷，已存在的不重複加入），回傳新增的場數
+      const restoreHistory = (recs) => {
+        const have = new Set(history.map(r => r.id));
+        const fresh = recs.filter(r => !have.has(r.id)).filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i);
+        if (!fresh.length) return 0;
+        const next = [...history, ...fresh].sort((a, b) => a.finishedAt - b.finishedAt);
+        setHistory(next); saveHistory(next);
+        return fresh.length;
+      };
 
       // 比賽正常結束（非緊急中止）時自動存成績紀錄；同組重賽會各自存一筆
       useEffect(() => {
@@ -1838,7 +1903,7 @@ const ICE_SVG = HAZ_SVG(`
             </FitStage>
           )}
 
-          {showHistory && <ScoreHistory history={history} onClose={() => setShowHistory(false)} onClear={clearHistory} />}
+          {showHistory && <ScoreHistory history={history} onClose={() => setShowHistory(false)} onClear={clearHistory} onRestore={restoreHistory} />}
           {showSettings && <GameSettings settings={settings} onChange={changeSettings} onClose={() => setShowSettings(false)} />}
 
           {/* 3、2、1、GO 倒數 */}
