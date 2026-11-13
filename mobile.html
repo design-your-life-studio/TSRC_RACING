@@ -195,7 +195,7 @@
     const RACE_DURATION = 30;       // 比賽秒數
     const COUNTDOWN_MS = 3000;      // 3、2、1 倒數
     const SPAWN_INTERVAL = 650;     // 物件生成間隔：每 0.65 秒一個
-    const FLOAT_MIN = 1.5, FLOAT_MAX = 2.2;   // 物件從底部飄到頂端的秒數（加強難度：原本 2～3 秒）
+    const FLOAT_MIN = 2, FLOAT_MAX = 3;   // 物件從底部飄到頂端的秒數（最後 10 秒衝刺時速度加倍）
     const RUSH_MS = 10000;          // 最後 10 秒衝刺：物件速度加倍、出現頻率加倍
     const FREEZE_MS = 1000;         // 點到冰凍：畫面凍住 1 秒（不扣分，期間不能點）
     // 連擊加成：連續點中好泡泡，第 5 顆起 +15、第 10 顆起 +20；點到任何障礙物連擊歸零
@@ -729,7 +729,7 @@ const ICE_SVG = HAZ_SVG(`
         return () => clearInterval(id);
       }, [status, myKey, uid, roomPath]);
 
-      // 物件生成：每 0.65 秒一個，1.5～2.2 秒浮上去；40% 是障礙物（香蕉皮／三角錐／冰凍各三分之一）
+      // 物件生成：每 0.65 秒一個，2～3 秒浮上去；40% 是障礙物（香蕉皮／三角錐／冰凍各三分之一）
       // 最後 10 秒衝刺：出現頻率加倍、速度加倍；冰凍期間暫停生成
       useEffect(() => {
         if (!playing) { setBubbles([]); return; }
@@ -1098,12 +1098,13 @@ const ICE_SVG = HAZ_SVG(`
             {/* ===== 選擇車隊（桌號卡片）===== */}
             {view === 'pick' && (
               <div className="flex-1 flex flex-col p-4 gap-4">
-                <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-center">
+                <div className="bg-[#facc15] border-4 border-black retro-shadow p-3 flex justify-between items-end">
                   <div>
                     <div className="font-black text-xs">ROOM</div>
-                    <div data-testid="joined-room" className="font-black font-mono text-2xl tracking-widest">{roomCode}</div>
+                    <div data-testid="joined-room" className="font-black font-mono text-2xl leading-8 tracking-widest">{roomCode}</div>
                   </div>
-                  <span className="bg-white border-4 border-black px-3 py-1 font-black">選擇你的車隊</span>
+                  {/* 說明文字（不是按鈕）：和房間號碼同一行對齊 */}
+                  <span className="font-black text-lg leading-8 whitespace-nowrap">選擇你的車隊</span>
                 </div>
                 {error && <p className="text-black font-black bg-white border-2 border-black px-3 py-1 text-center">{error}</p>}
 
@@ -1115,10 +1116,10 @@ const ICE_SVG = HAZ_SVG(`
                       const st = teamStatus(room, t);
                       return (
                         <button key={t} data-card={t} onClick={() => { setNameError(''); setNameDraft(loadName()); setPendingTable(t); }} disabled={busy || status !== 'lobby'}
-                          className="bg-white border-4 border-black retro-shadow-sm p-3 flex flex-col items-center active:translate-y-[3px] active:shadow-none transition-all">
-                          <div className="w-full flex justify-between items-center mb-1">
-                            <span className="font-black text-xl">第 {pad2(t)} 桌</span>
-                            <TrafficLight light={st.light} />
+                          className="bg-white border-4 border-black retro-shadow-sm p-2 min-[360px]:p-3 flex flex-col items-center active:translate-y-[3px] active:shadow-none transition-all">
+                          <div className="w-full flex justify-between items-center gap-1 mb-1">
+                            <span className="font-black text-base min-[360px]:text-lg min-[390px]:text-xl whitespace-nowrap">第 {pad2(t)} 桌</span>
+                            <span className="shrink-0"><TrafficLight light={st.light} /></span>
                           </div>
                           <div className="w-24 h-10 my-1"><F1CarSVG color={colorHex(room.teams?.[teamKey(t)]?.color)} /></div>
                           <div className="font-bold text-sm">{st.count} 人加入</div>
@@ -1255,7 +1256,7 @@ const ICE_SVG = HAZ_SVG(`
                 <div data-testid="rank-sheet" className="bg-[#facc15] border-4 border-black retro-shadow w-full max-w-sm max-h-full flex flex-col">
                   <div className="px-4 pt-4 pb-2">
                     <div className="font-black text-black text-2xl">本場排行</div>
-                    <div className="font-bold text-black/70 text-sm">ROOM {roomCode}・共 {ranking.length} 隊・點車隊看成員分數</div>
+                    <div className="font-bold text-black/70 text-sm">ROOM {roomCode}・共 {ranking.length} 隊</div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 flex flex-col gap-2">
                     {ranking.map(r => {
@@ -1269,10 +1270,12 @@ const ICE_SVG = HAZ_SVG(`
                         <div key={r.table} className={`border-4 border-black ${mine ? 'bg-[#fef08a] shadow-[3px_3px_0_#000]' : 'bg-white'}`}>
                         <button type="button" data-rank-row={r.table} aria-expanded={open} onClick={() => setRankOpen(open ? null : r.table)} className="w-full flex items-center gap-2 px-2 py-1.5 text-left">
                           <span className={`w-9 h-9 shrink-0 rounded-full border-[3px] border-black flex items-center justify-center font-black ${medal(r.rank)}`}>{r.rank}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-black text-black text-lg whitespace-nowrap">第 {pad2(r.table)} 桌</div>
-                            {/* 暱稱只在展開後的成員清單顯示 */}
-                            {mine && <span className="inline-block text-[10px] leading-4 bg-[#e11d48] text-white font-black px-1 border-2 border-black whitespace-nowrap">我的車隊</span>}
+                          <div className="flex-1 min-w-0 flex">
+                            {/* 桌號＋「我的車隊」標籤上下置中對齊、貼近桌號；暱稱只在展開後的成員清單顯示 */}
+                            <div className="flex flex-col items-center">
+                              <div className="font-black text-black text-lg leading-6 whitespace-nowrap">第 {pad2(r.table)} 桌</div>
+                              {mine && <span className="mt-0.5 text-[10px] leading-4 bg-[#e11d48] text-white font-black px-1 border-2 border-black whitespace-nowrap">我的車隊</span>}
+                            </div>
                           </div>
                           <span className="w-12 h-5 shrink-0"><F1CarSVG color={colorHex(room.teams?.[teamKey(r.table)]?.color)} /></span>
                           <span className="w-14 text-right font-black text-black text-xl shrink-0">{r.score}</span>
@@ -1295,7 +1298,7 @@ const ICE_SVG = HAZ_SVG(`
                     })}
                   </div>
                   <div className="p-3 border-t-4 border-black">
-                    <button onClick={() => setShowRank(false)} className={bigBtn('neutral')}>關閉</button>
+                    <button onClick={() => setShowRank(false)} className="block mx-auto w-40 bg-white text-black border-4 border-black rounded-full py-2 font-black text-lg retro-shadow-sm active:translate-y-[3px] active:shadow-none transition-all">關閉</button>
                   </div>
                 </div>
               </div>
