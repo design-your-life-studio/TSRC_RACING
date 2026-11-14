@@ -186,6 +186,8 @@
     @keyframes iceIn { 0% { opacity: 0; transform: scale(1.06); } 10% { opacity: 1; transform: scale(1); } 82% { opacity: 1; } 100% { opacity: 0; } }
     @keyframes iceText { from { transform: translate(-50%, -50%) scale(.3); } 60% { transform: translate(-50%, -50%) scale(1.15); } to { transform: translate(-50%, -50%) scale(1); } }
     @keyframes iceShiver { to { margin-left: 2px; } }
+    .no-spin::-webkit-outer-spin-button, .no-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .no-spin { -moz-appearance: textfield; appearance: textfield; }
     @keyframes shakePhone { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-16deg); } 40% { transform: rotate(14deg); } 60% { transform: rotate(-10deg); } 80% { transform: rotate(8deg); } }
     .shake-phone { animation: shakePhone .7s ease-in-out infinite; transform-origin: 50% 80%; }
     @keyframes hzFeed { from { transform: translateX(-24px); opacity: 0; } }
@@ -258,9 +260,13 @@
     const MODE_IDS = MODE_OPTIONS.map(m => m.id);
     const roomMode = (meta) => (meta && meta.mode === 'shake') ? 'shake' : 'tap';
     const modeName = (mode) => (MODE_OPTIONS.find(m => m.id === mode) || MODE_OPTIONS[0]).name;
+    // 自定義的可輸入範圍（與資料庫規則一致：目標 100–5000 分、秒數 10–300 秒）
+    const TARGET_RANGE = [100, 5000];
+    const DURATION_RANGE = [10, 300];
+    const inRange = (v, [lo, hi]) => Number.isInteger(v) && v >= lo && v <= hi;
     const loadSettings = () => {
       try { const v = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
-        return { mode: MODE_IDS.includes(v.mode) ? v.mode : 'tap', target: TARGET_OPTIONS.includes(v.target) ? v.target : TARGET_SCORE, duration: DURATION_OPTIONS.includes(v.duration) ? v.duration : RACE_DURATION }; }
+        return { mode: MODE_IDS.includes(v.mode) ? v.mode : 'tap', target: inRange(v.target, TARGET_RANGE) ? v.target : TARGET_SCORE, duration: inRange(v.duration, DURATION_RANGE) ? v.duration : RACE_DURATION }; }
       catch (e) { return { mode: 'tap', target: TARGET_SCORE, duration: RACE_DURATION }; }
     };
     const COUNTDOWN_MS = 3000;   // 3、2、1 倒數；之後顯示 GO 並正式開賽
@@ -830,28 +836,67 @@ const ICE_SVG = HAZ_SVG(`
 
 
     // ================= 遊戲設定視窗（目標分數、比賽秒數）=================
+    // 「自定義」選項：點一下變成輸入框，Enter 或點別處確定、Esc 取消
+    const CustomChip = ({ field, value, options, unit, range, onPick }) => {
+      const [editing, setEditing] = useState(false);
+      const [draft, setDraft] = useState('');
+      const inputRef = useRef(null);
+      const active = !options.includes(value);
+      useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+      const begin = () => { setDraft(String(active ? value : '')); setEditing(true); };
+      const commit = () => {
+        setEditing(false);
+        const n = Math.round(Number(draft));
+        if (!String(draft).trim() || !Number.isFinite(n)) return;   // 沒輸入就維持原本設定
+        onPick(Math.min(range[1], Math.max(range[0], n)));         // 超出範圍自動修正到上下限
+      };
+      if (editing) {
+        return (
+          <div className="flex items-center gap-3 shrink-0">
+            <label className={`flex items-center shrink-0 px-3 py-2 border-4 border-black font-black text-xl ${SEL_ON} translate-x-[4px] translate-y-[4px]`}>
+              <input ref={inputRef} data-setting={`${field}-custom-input`} type="number" inputMode="numeric" min={range[0]} max={range[1]}
+                value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+                  else if (e.key === 'Escape') { e.stopPropagation(); setDraft(''); setEditing(false); }
+                }}
+                className="no-spin w-24 bg-white border-2 border-black px-2 py-0.5 text-right font-black text-xl text-black outline-none" />
+              <span className="ml-1">{unit.trim()}</span>
+            </label>
+            <span className="font-bold text-gray-500 text-sm leading-tight whitespace-nowrap">{range[0]}～{range[1]}{unit.trim()}<br />按 Enter 確定</span>
+          </div>
+        );
+      }
+      return (
+        <button data-setting={`${field}-custom`} aria-pressed={active} onClick={begin}
+          className={`min-w-[96px] shrink-0 whitespace-nowrap px-4 py-2 border-4 border-black font-black text-xl transition-all ${active ? `${SEL_ON} translate-x-[4px] translate-y-[4px] shadow-none` : `bg-white text-black shadow-[4px_4px_0px_#000] ${SEL_HOVER}`}`}>
+          {active ? <>{value}{unit}<span className="ml-2 text-sm align-middle opacity-70">自定義</span></> : '自定義'}
+        </button>
+      );
+    };
     const GameSettings = ({ settings, onChange, onClose }) => {
       useEffect(() => {
         const onKey = (e) => { if (e.key === 'Escape') onClose(); };
         window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
       }, [onClose]);
-      const row = (label, desc, options, value, unit, field) => (
+      const row = (label, desc, options, value, unit, field, range) => (
         <div className="mb-6">
           <div className="font-black text-black text-xl">{label}</div>
           <div className="font-bold text-gray-500 text-sm mb-3">{desc}</div>
           <div className="flex gap-3">
             {options.map(v => (
               <button key={v} data-setting={`${field}-${v}`} aria-pressed={value === v} onClick={() => onChange({ [field]: v })}
-                className={`min-w-[96px] px-4 py-2 border-4 border-black font-black text-xl transition-all ${value === v ? `${SEL_ON} translate-x-[4px] translate-y-[4px] shadow-none` : `bg-white text-black shadow-[4px_4px_0px_#000] ${SEL_HOVER}`}`}>
+                className={`min-w-[96px] shrink-0 whitespace-nowrap px-4 py-2 border-4 border-black font-black text-xl transition-all ${value === v ? `${SEL_ON} translate-x-[4px] translate-y-[4px] shadow-none` : `bg-white text-black shadow-[4px_4px_0px_#000] ${SEL_HOVER}`}`}>
                 {v}{unit}
               </button>
             ))}
+            <CustomChip field={field} value={value} options={options} unit={unit} range={range} onPick={v => onChange({ [field]: v })} />
           </div>
         </div>
       );
       return (
         <div className="absolute inset-0 z-[70] bg-black/60 flex items-center justify-center p-6" onClick={onClose}>
-          <div data-testid="settings-modal" onClick={e => e.stopPropagation()} className="w-full max-w-xl">
+          <div data-testid="settings-modal" onClick={e => e.stopPropagation()} className="w-full max-w-3xl">
             <RetroWindow title="Game_Settings.exe">
               <div className="p-6 bg-white">
                 <div className="mb-6">
@@ -870,8 +915,8 @@ const ICE_SVG = HAZ_SVG(`
                     })}
                   </div>
                 </div>
-                {row('目標分數', '任一組先達到這個分數，比賽立即結束', TARGET_OPTIONS, settings.target, ' 分', 'target')}
-                {row('比賽秒數', '時間到還沒有隊伍達標，就以分數最高的隊伍獲勝', DURATION_OPTIONS, settings.duration, ' 秒', 'duration')}
+                {row('目標分數', '任一組先達到這個分數，比賽立即結束', TARGET_OPTIONS, settings.target, ' 分', 'target', TARGET_RANGE)}
+                {row('比賽秒數', '時間到還沒有隊伍達標，就以分數最高的隊伍獲勝', DURATION_OPTIONS, settings.duration, ' 秒', 'duration', DURATION_RANGE)}
                 <div className="font-bold text-gray-500 text-sm">設定會記在這台電腦，下一個建立的房間開始套用</div>
               </div>
               <div className="border-t-4 border-black bg-[#f1f5f9] p-3 flex justify-end">
