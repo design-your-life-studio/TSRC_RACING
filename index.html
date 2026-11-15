@@ -543,6 +543,8 @@ const ICE_SVG = HAZ_SVG(`
     // （賽道拉滿全寬；大廳的按鈕、比賽中的障礙物紀錄移到右側欄）
     // 測試用：網址加 ?wide=on 強制寬版、?wide=off 強制一般版面
     const WIDE_RATIO = 2.4;
+    // 寬螢幕首頁：標題與賽車往中間靠攏，主視覺最寬只到這個寬度（依畫面高度換算），兩側留白
+    const HOME_WIDE_MAX = '210vh';
     const useWideMode = () => {
       const force = new URLSearchParams(location.search).get('wide');
       const calc = () => force === 'off' ? '' : force === 'on' ? 'b' : (innerWidth / innerHeight >= WIDE_RATIO ? 'b' : '');
@@ -1713,13 +1715,13 @@ const ICE_SVG = HAZ_SVG(`
           {view === 'home' && (
             <div className={`absolute inset-0 flex flex-col z-10 text-white hm-live ${homeIntro && !launching ? 'hm-intro' : ''} ${launching ? 'hm-launch' : ''}`}>
               {/* 上方資訊列 */}
-              <div className="flex items-center justify-between px-[4vw] pt-[4vh] font-hud font-bold tracking-[0.3em]" style={{ fontSize: 'clamp(12px, min(1vw, 1.8vh), 20px)' }}>
+              <div className="flex items-center justify-between px-[4vw] pt-[4vh] font-hud font-bold tracking-[0.3em] w-full mx-auto" style={{ fontSize: 'clamp(12px, min(1vw, 1.8vh), 20px)', ...(wide ? { maxWidth: HOME_WIDE_MAX, padding: '4vh 4vh 0' } : {}) }}>
                 <div className="text-white/60 hm-season hm-fadeout">SEASON 2027</div>
                 <div className="tracking-normal">{serverBadge}</div>
               </div>
 
               {/* 主視覺 */}
-              <div className="flex-1 grid grid-cols-[1.1fr_1fr] items-center gap-[3vw] px-[6vw]">
+              <div className="flex-1 grid grid-cols-[1.1fr_1fr] items-center gap-[3vw] px-[6vw] w-full mx-auto" style={wide ? { maxWidth: HOME_WIDE_MAX, padding: '0 8vh', gap: '6vh' } : undefined}>
                 {/* 左欄疊在賽車上層：賽車進場時從標題後方穿過 */}
                 <div className="hm-exit flex flex-col items-start relative z-[2]">
                   {/* 黃線＋副標：整體寬度與「方程式」相同 */}
