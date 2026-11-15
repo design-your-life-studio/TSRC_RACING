@@ -539,10 +539,24 @@ const ICE_SVG = HAZ_SVG(`
     const LogoText = ({ children }) => <span className="logo-plain">{children}</span>;
 
     // 畫面自動縮放：內容依固定設計寬度排版，再等比縮放到剛好放進視窗（電腦端永遠不需要捲動）
-    const FitStage = ({ width, className = '', smooth = false, children }) => {
+    // 超寬螢幕（例如 3520×768 LED 牆）：寬高比 ≥ 2.4 時自動改用寬版版面
+    // （賽道拉滿全寬；大廳的按鈕、比賽中的障礙物紀錄移到右側欄）
+    // 測試用：網址加 ?wide=on 強制寬版、?wide=off 強制一般版面
+    const WIDE_RATIO = 2.4;
+    const useWideMode = () => {
+      const force = new URLSearchParams(location.search).get('wide');
+      const calc = () => force === 'off' ? '' : force === 'on' ? 'b' : (innerWidth / innerHeight >= WIDE_RATIO ? 'b' : '');
+      const [m, setM] = useState(calc);
+      useEffect(() => { const f = () => setM(calc()); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+      return m;
+    };
+    const FitStage = ({ width, fill = false, className = '', smooth = false, children }) => {
       const outer = useRef(null);
       const inner = useRef(null);
       const [scale, setScale] = useState(1);
+      // fill：超寬螢幕時，設計寬度跟著螢幕比例拉寬（內容高度不變），左右不再留白
+      const [w, setW] = useState(width);
+      useLayoutEffect(() => { if (!fill) setW(width); }, [fill, width]);
       // smooth：版面高度改變時縮放比例平滑過渡（首次定位不做動畫，避免進場時縮放跳動）
       const [settled, setSettled] = useState(false);
       useEffect(() => { const t = setTimeout(() => setSettled(true), 80); return () => clearTimeout(t); }, []);
@@ -550,6 +564,10 @@ const ICE_SVG = HAZ_SVG(`
         const fit = () => {
           const o = outer.current, i = inner.current;
           if (!o || !i || !i.offsetWidth || !i.offsetHeight) return;
+          if (fill) {
+            const want = Math.max(width, Math.round((o.clientWidth - 48) / (o.clientHeight - 48) * i.offsetHeight));
+            if (Math.abs(want - i.offsetWidth) > 2) { setW(want); return; }
+          }
           const s = Math.min(1.35, (o.clientWidth - 48) / i.offsetWidth, (o.clientHeight - 48) / i.offsetHeight);
           setScale(s > 0 ? s : 1);
         };
@@ -558,10 +576,10 @@ const ICE_SVG = HAZ_SVG(`
         ro.observe(outer.current); ro.observe(inner.current);
         window.addEventListener('resize', fit);
         return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
-      }, []);
+      }, [fill, width]);
       return (
         <div ref={outer} className="absolute inset-0 flex items-center justify-center overflow-hidden">
-          <div ref={inner} className={`flex flex-col items-center shrink-0 ${smooth && settled ? 'fit-smooth' : ''} ${className}`} style={{ width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+          <div ref={inner} className={`flex flex-col items-center shrink-0 ${smooth && settled ? 'fit-smooth' : ''} ${className}`} style={{ width: fill ? w : width, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
             {children}
           </div>
         </div>
@@ -1126,6 +1144,7 @@ const ICE_SVG = HAZ_SVG(`
 
     // ================= 主程式 =================
     const App = () => {
+      const wide = useWideMode();
       const [user, setUser] = useState(null);
       const [connected, setConnected] = useState(false);
       const [view, setView] = useState('loading'); // loading | home | setup | room
@@ -1750,9 +1769,9 @@ const ICE_SVG = HAZ_SVG(`
 
           {/* ===== 賽事設定：選 2～10 組桌號 ===== */}
           {view === 'setup' && (
-            <FitStage width={1240} className="pg-enter">
+            <FitStage width={1240} fill={!!wide} className="pg-enter">
               <TitleBlock />
-              <RetroWindow title="Race_Setup.exe" right={serverBadge} className="max-w-6xl">
+              <RetroWindow title="Race_Setup.exe" right={serverBadge} className={wide ? 'w-full' : 'max-w-6xl'}>
                 <div className="bg-[#facc15] border-b-4 border-black px-5 py-3 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <span className="font-black text-black text-2xl">請選擇參賽桌號</span>
@@ -1763,7 +1782,7 @@ const ICE_SVG = HAZ_SVG(`
                   </span>
                 </div>
                 <div className="bg-[#38bdf8] p-6">
-                  <div className="grid grid-cols-10 gap-3">
+                  <div className={`grid gap-3 ${wide ? 'grid-cols-[repeat(20,minmax(0,1fr))]' : 'grid-cols-10'}`}>
                     {Array.from({ length: TOTAL_TABLES }, (_, i) => i + 1).map(t => {
                       const done = raced.includes(t);
                       const on = selected.includes(t);
@@ -1811,13 +1830,13 @@ const ICE_SVG = HAZ_SVG(`
 
           {/* ===== 房間等待畫面 ===== */}
           {view === 'room' && (
-            <FitStage width={1360} smooth className={roomExit ? 'room-exit' : ''}>
+            <FitStage width={1360} fill={!!wide} smooth className={roomExit ? 'room-exit' : ''}>
               {/* 房間畫面（大廳、倒數、比賽）都不顯示標題，讓賽道畫面放大 */}
               <div className={`race-title ${room ? 'is-hidden' : ''}`}><div><TitleBlock /></div></div>
               {!room ? (
                 <div className="text-white font-black text-2xl animate-pulse">讀取房間中...</div>
               ) : (
-                <div className="w-full max-w-7xl flex gap-6 items-stretch z-10">
+                <div className={`w-full flex gap-6 items-stretch z-10 ${wide ? '' : 'max-w-7xl'}`}>
                   {/* 左：房號 + QR Code */}
                   {status !== 'lobby' ? (
                     <div className="w-80 shrink-0 bg-[#facc15] border-4 border-black rounded-xl shadow-[12px_12px_0px_#000] p-5 flex flex-col items-center">
@@ -1840,14 +1859,14 @@ const ICE_SVG = HAZ_SVG(`
                       <div data-testid="race-target" className="font-latin text-6xl text-black">{target}</div>
                       {/* 障礙物紀錄：最新的在最上面 */}
                       {/* 固定高度（剛好放 5 筆），倒數、比賽、結算時都保留這塊空間，視窗高度不會被撐開 */}
-                      {status !== 'lobby' && mode === 'shake' && (
+                      {wide !== 'b' && status !== 'lobby' && mode === 'shake' && (
                         <div data-testid="shake-hint" className="w-full mt-4 mb-3 flex flex-col items-center justify-center gap-2 bg-white border-4 border-black shrink-0 text-black" style={{ height: HAZ_FEED_H - 12 }}>
                           <svg className="shake-phone" width="44" height="64" viewBox="0 0 44 64" aria-hidden="true"><rect x="3" y="3" width="38" height="58" rx="7" fill="#facc15" stroke="#000" strokeWidth="4"/><rect x="9" y="11" width="26" height="36" fill="#38bdf8" stroke="#000" strokeWidth="3"/><circle cx="22" cy="53" r="3" fill="#000"/></svg>
                           <div className="font-black text-lg">搖晃手機衝刺！</div>
                           <div className="font-bold text-sm text-black/60">每搖一下 +10 分</div>
                         </div>
                       )}
-                      {status !== 'lobby' && mode !== 'shake' && (
+                      {wide !== 'b' && status !== 'lobby' && mode !== 'shake' && (
                         <div data-testid="hazard-feed" className="w-full mt-4 flex flex-col gap-1.5 overflow-hidden shrink-0" style={{ height: HAZ_FEED_H }}>
                           <div className="font-black text-black text-sm border-b-4 border-black h-[22px] leading-[18px] shrink-0">障礙物紀錄</div>
                           {hazFeed.map(ev => (
@@ -1930,10 +1949,64 @@ const ICE_SVG = HAZ_SVG(`
                       </div>
                     </div>
                   </RetroWindow>
+
+                  {/* 寬版 B：右側欄（大廳＝人數統計＋按鈕；比賽＝障礙物紀錄＋緊急中止）*/}
+                  {wide === 'b' && (
+                    <div data-testid="wide-side" className="w-72 shrink-0 flex flex-col gap-5">
+                      {status === 'lobby' ? (() => {
+                        const sts = (room.tables || []).map(t => teamStatus(room, t));
+                        const people = sts.reduce((a, x) => a + x.count, 0);
+                        const greens = sts.filter(x => x.light === 'green').length;
+                        return (
+                          <>
+                            <div className="flex-1 bg-white border-4 border-black rounded-xl shadow-[8px_8px_0px_#000] p-5 flex flex-col">
+                              <div className="font-black text-black text-xl">報名狀況</div>
+                              <div className="mt-4 font-bold text-black/60 text-sm">已加入車手</div>
+                              <div className="font-latin text-6xl text-black leading-none">{people}<span className="text-2xl ml-2 font-black">人</span></div>
+                              <div className="mt-5 font-bold text-black/60 text-sm">準備完成</div>
+                              <div className="font-latin text-6xl text-black leading-none">{greens}<span className="text-3xl text-black/40"> / {sts.length}</span><span className="text-2xl ml-2 font-black">組</span></div>
+                              <div className="mt-auto font-bold text-black/60 text-sm leading-snug">全部綠燈後即可開始比賽</div>
+                            </div>
+                            <button onClick={startRace} disabled={!allGreen || !connected} data-testid="start-race" className={`${bigBtn(allGreen && connected)} !w-full !px-4 justify-center`}>
+                              {allGreen ? '開始比賽' : '等待全部綠燈'}
+                            </button>
+                            <ConfirmButton onConfirm={() => closeRoom('setup', true)} confirmText="再按一次確認取消" className={`${dangerBtn} w-full`}>取消房間・回到選桌</ConfirmButton>
+                          </>
+                        );
+                      })() : (
+                        <>
+                          <div className="flex-1 bg-[#facc15] border-4 border-black rounded-xl shadow-[8px_8px_0px_#000] p-5 flex flex-col overflow-hidden">
+                            {mode === 'shake' ? (
+                              <div data-testid="shake-hint" className="flex-1 flex flex-col items-center justify-center gap-3 bg-white border-4 border-black text-black">
+                                <svg className="shake-phone" width="56" height="82" viewBox="0 0 44 64" aria-hidden="true"><rect x="3" y="3" width="38" height="58" rx="7" fill="#facc15" stroke="#000" strokeWidth="4"/><rect x="9" y="11" width="26" height="36" fill="#38bdf8" stroke="#000" strokeWidth="3"/><circle cx="22" cy="53" r="3" fill="#000"/></svg>
+                                <div className="font-black text-xl">搖晃手機衝刺！</div>
+                                <div className="font-bold text-black/60">每搖一下 +10 分</div>
+                              </div>
+                            ) : (
+                              <div data-testid="hazard-feed" className="flex flex-col gap-1.5 overflow-hidden">
+                                <div className="font-black text-black text-lg border-b-4 border-black pb-1 mb-1 shrink-0">障礙物紀錄</div>
+                                {hazFeed.map(ev => (
+                                  <div key={ev.id} data-hazard-item={ev.type} className="hz-item flex items-center gap-1.5 bg-white border-[3px] border-black px-2 h-9 shrink-0 font-black text-base text-black">
+                                    <span>#{pad2(ev.table)}</span>
+                                    <span className="hz-ico w-7 h-7 shrink-0" dangerouslySetInnerHTML={{ __html: HAZARD_INFO[ev.type].svg }} />
+                                    <span>{HAZARD_INFO[ev.type].name}</span>
+                                    <span className={`ml-auto ${ev.type === 'ice' ? 'text-[#0369a1]' : 'text-[#e11d48]'}`}>{ev.type === 'ice' ? '凍 1 秒' : HAZARD_INFO[ev.type].pts}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {(status === 'countdown' || status === 'racing') && (
+                            <ConfirmButton onConfirm={abortRace} confirmText="再按一次確認中止" className={`${dangerBtn} w-full`}>緊急中止比賽</ConfirmButton>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {room && status === 'lobby' && (
+              {wide !== 'b' && room && status === 'lobby' && (
                 <div className="mt-8 flex items-center gap-6 z-10">
                   <ConfirmButton onConfirm={() => closeRoom('setup', true)} confirmText="再按一次確認取消" className={dangerBtn}>取消房間・回到選桌</ConfirmButton>
                   <button onClick={startRace} disabled={!allGreen || !connected} data-testid="start-race" className={bigBtn(allGreen && connected)}>
@@ -1941,7 +2014,7 @@ const ICE_SVG = HAZ_SVG(`
                   </button>
                 </div>
               )}
-              {room && (status === 'countdown' || status === 'racing') && (
+              {wide !== 'b' && room && (status === 'countdown' || status === 'racing') && (
                 <div className="mt-8 flex items-center gap-6 z-10">
                   <ConfirmButton onConfirm={abortRace} confirmText="再按一次確認中止" className={dangerBtn}>緊急中止比賽</ConfirmButton>
                 </div>
