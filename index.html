@@ -202,7 +202,8 @@
     @keyframes hmBar { from { transform: scaleX(0); } }
     @keyframes hmSlide { from { opacity: 0; transform: translateX(-40px); } }
     @keyframes hmStamp { 0% { opacity: 0; transform: scale(2.2) rotate(-6deg); } 60% { opacity: 1; } 100% { opacity: 1; transform: scale(1) rotate(0); } }
-    @keyframes hmDriveIn { from { transform: translateX(-260%); } }
+    /* 進出場距離至少一整個螢幕寬：寬螢幕時賽車位置靠中間，只移 260% 車身會還留在畫面裡 */
+    @keyframes hmDriveIn { from { transform: translateX(min(-260%, -100vw)); } }
     @keyframes hmPop { 0% { opacity: 0; transform: scale(.4); } 100% { opacity: 1; transform: scale(1); } }
     @keyframes hmSpin { to { transform: rotate(360deg); } }   /* 車頭朝右往前開：輪子順時針轉 */
     @keyframes hmIdle { from { transform: translateY(0); } to { transform: translateY(-2px); } }
@@ -213,7 +214,7 @@
     @keyframes hmStreak { 0% { transform: translateX(60%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(-80%); opacity: 0; } }
     @keyframes hmDash { to { background-position: -28px 0; } }
     @keyframes hmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-    @keyframes hmLaunch { 0% { transform: translateX(0); } 15% { transform: translateX(-4%); } 100% { transform: translateX(260%); } }
+    @keyframes hmLaunch { 0% { transform: translateX(0); } 15% { transform: translateX(-4%); } 100% { transform: translateX(max(260%, 100vw)); } }
     .track-dash { background-image: linear-gradient(90deg, rgba(255,255,255,0.55) 50%, transparent 50%); background-size: 28px 4px; background-repeat: repeat-x; height: 4px; }
     .qr-box svg { width: 100%; height: 100%; display: block; }
     @keyframes countPop { 0% { transform: scale(1.8); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(0.85); opacity: 0; } }
@@ -1706,7 +1707,7 @@ const ICE_SVG = HAZ_SVG(`
                       <span className="inline-block font-medium tracking-[0.2em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
                     </span>
                   </FitWidthText>
-                <h1 style={{ fontSize: 'clamp(80px, min(11vw, 20vh), 240px)' }}><LogoText><span ref={splashTitleRef} className="inline-block">綠能方程式</span></LogoText></h1>
+                <h1 style={{ fontSize: wide ? 'min(20vh, 240px)' : 'clamp(80px, min(11vw, 20vh), 240px)' }}><LogoText><span ref={splashTitleRef} className="inline-block">綠能方程式</span></LogoText></h1>
               </div>
             </div>
           )}
@@ -1715,7 +1716,7 @@ const ICE_SVG = HAZ_SVG(`
           {view === 'home' && (
             <div className={`absolute inset-0 flex flex-col z-10 text-white hm-live ${homeIntro && !launching ? 'hm-intro' : ''} ${launching ? 'hm-launch' : ''}`}>
               {/* 上方資訊列 */}
-              <div className="flex items-center justify-between px-[4vw] pt-[4vh] font-hud font-bold tracking-[0.3em] w-full mx-auto" style={{ fontSize: 'clamp(12px, min(1vw, 1.8vh), 20px)', ...(wide ? { maxWidth: HOME_WIDE_MAX, padding: '4vh 4vh 0' } : {}) }}>
+              <div className="flex items-center justify-between px-[4vw] pt-[4vh] font-hud font-bold tracking-[0.3em] w-full mx-auto" style={{ fontSize: wide ? 'clamp(8px, 1.8vh, 20px)' : 'clamp(12px, min(1vw, 1.8vh), 20px)', ...(wide ? { maxWidth: HOME_WIDE_MAX, padding: '4vh 4vh 0' } : {}) }}>
                 <div className="text-white/60 hm-season hm-fadeout">SEASON 2027</div>
                 <div className="tracking-normal">{serverBadge}</div>
               </div>
@@ -1731,12 +1732,12 @@ const ICE_SVG = HAZ_SVG(`
                       <span className="hm-tagtxt inline-block font-medium tracking-[0.2em]">解鎖 2027 冠軍賽<span className="tracking-normal">道</span></span>
                     </span>
                   </FitWidthText>
-                  <h1 className="hm-dim" style={{ fontSize: 'clamp(84px, min(10.5vw, 19vh), 230px)' }}><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
+                  <h1 className="hm-dim" style={{ fontSize: wide ? 'min(19vh, 230px)' : 'clamp(84px, min(10.5vw, 19vh), 230px)' }}><LogoText><IntroChars text="綠能" /><br /><span ref={formulaRef} className="inline-block"><IntroChars text="方程式" from={2} /></span></LogoText></h1>
                   <FitWidthText targetRef={formulaRef} className="font-winner text-[#facc15] mt-[2.5vh] hm-eng">GREEN ENERGY FORMULA</FitWidthText>
                   <div className="hm-pop mt-[5vh]">
                     <div className={user ? 'hm-breath' : ''}>
                       <button onClick={startGame} disabled={!user}
-                        className={`${bigBtn(!!user)} !gap-[0.6em]`} style={{ fontSize: 'clamp(22px, min(2.2vw, 4.2vh), 48px)', padding: '0.45em 1.4em', borderWidth: 'clamp(4px, 0.35vw, 7px)' }}>
+                        className={`${bigBtn(!!user)} !gap-[0.6em]`} style={{ fontSize: wide ? 'clamp(12px, 4.2vh, 48px)' : 'clamp(22px, min(2.2vw, 4.2vh), 48px)', padding: '0.45em 1.4em', borderWidth: wide ? 'clamp(3px, 0.6vh, 7px)' : 'clamp(4px, 0.35vw, 7px)' }}>
                         開始遊戲
                       </button>
                     </div>
@@ -1747,21 +1748,21 @@ const ICE_SVG = HAZ_SVG(`
                   <div className="relative w-full" style={{ maxWidth: 'min(40vw, 72vh)' }}>
                     {/* F1 起跑燈 */}
                     <div className="hm-fadeout absolute left-0 right-0 flex justify-center pointer-events-none" style={{ bottom: 'calc(100% + 6vh)' }}>
-                      <div ref={lightsRef} className="hm-lights" style={{ fontSize: 'clamp(22px, min(2.3vw, 4.2vh), 46px)' }}>
+                      <div ref={lightsRef} className="hm-lights" style={{ fontSize: wide ? 'clamp(10px, 4.2vh, 46px)' : 'clamp(22px, min(2.3vw, 4.2vh), 46px)' }}>
                         {[0, 1, 2, 3, 4].map(i => <div key={i} className="hm-light"></div>)}
                       </div>
                     </div>
                     {/* 2027 外框大字：以賽車為中心 */}
                     <div className="relative">
                       <div className="outline-num hm-num hm-fadeout absolute select-none pointer-events-none whitespace-nowrap"
-                        style={{ fontSize: 'clamp(160px, min(21vw, 38vh), 460px)', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>2027</div>
+                        style={{ fontSize: wide ? 'min(38vh, 460px)' : 'clamp(160px, min(21vw, 38vh), 460px)', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>2027</div>
                       <div ref={homeCarRef} className="hm-car relative w-full aspect-[120/45]">
                         <div className="hm-speed sp-stripe">{[['#facc15', '0%', '0s'], ['#ffffff', '39%', '.15s'], ['#e11d48', '78%', '.3s']].map(([c, t, d]) => <i key={c} style={{ top: t, background: c, animationDelay: d }}></i>)}</div>
                         <F1CarSVG color={CAR_COLORS[homeCarColor].hex} outline />
                       </div>
                     </div>
                     {/* START／FINISH 賽道線：放在 2027 大字下方，不重疊 */}
-                    <div className="hm-fadeout" style={{ marginTop: 'max(2vh, calc(0.447 * clamp(160px, min(21vw, 38vh), 460px) - 0.1875 * min(40vw, 72vh) + 2.5vh))' }}><div className="hm-track flex items-center gap-3 font-hud text-white/70 font-bold tracking-[0.25em]" style={{ fontSize: 'clamp(11px, min(0.9vw, 1.7vh), 18px)' }}>
+                    <div className="hm-fadeout" style={{ marginTop: wide ? 'max(2vh, calc(0.447 * min(38vh, 460px) - 0.1875 * 72vh + 2.5vh))' : 'max(2vh, calc(0.447 * clamp(160px, min(21vw, 38vh), 460px) - 0.1875 * min(40vw, 72vh) + 2.5vh))' }}><div className="hm-track flex items-center gap-3 font-hud text-white/70 font-bold tracking-[0.25em]" style={{ fontSize: wide ? 'clamp(7px, 1.7vh, 18px)' : 'clamp(11px, min(0.9vw, 1.7vh), 18px)' }}>
                       <span>START</span>
                       <div className="flex-1 track-dash"></div>
                       <span>FINISH</span>
